@@ -1,0 +1,21 @@
+[Unit]
+Description=Polymarket Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/polymarket
+EnvironmentFile=-/etc/default/polymarket-bot
+Environment=BOT_CAPITAL=1000
+Environment="BOT_FILTER=up or down"
+ExecStart=/bin/bash -lc '/opt/polymarket/build/src/bot/polymarket_bot --capital "${BOT_CAPITAL}" --filter "${BOT_FILTER}"'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

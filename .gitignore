@@ -1,0 +1,31 @@
+# Build output
+build/
+
+# Data files — never commit raw tick data, journals, or databases
+data/
+*.duckdb
+*.duckdb.tmp
+
+# Logs — runtime output only
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+research_env/
+research/*.ipynb_checkpoints/
+research/**/.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Private docs (not for repo)
+CLAUDE.md
+.devcontainer/
+commands.txt

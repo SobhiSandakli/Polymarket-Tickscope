@@ -1,0 +1,20 @@
+[Unit]
+Description=Binance BTC Price Harvester
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=ubuntu
+WorkingDirectory=/opt/polymarket
+EnvironmentFile=-/etc/default/binance-harvester
+Environment=BINANCE_DATA_DIR=/opt/polymarket/data
+ExecStart=/opt/polymarket/build/src/binance/binance_harvester
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
