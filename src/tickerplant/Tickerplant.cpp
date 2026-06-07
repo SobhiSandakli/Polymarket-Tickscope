@@ -1,7 +1,9 @@
 #include <polymarket/tickerplant/Tickerplant.hpp>
 
-#include <pthread.h> // pthread_setaffinity_np, pthread_self
-#include <sched.h>   // cpu_set_t, CPU_ZERO, CPU_SET
+#include <pthread.h> // pthread_self
+#if defined(__linux__)
+#include <sched.h> // cpu_set_t, CPU_ZERO, CPU_SET
+#endif
 
 #include <cstdio>     // std::fopen, std::fwrite, std::fclose, std::snprintf
 #include <cstring>    // std::memset
@@ -181,13 +183,15 @@ namespace polymarket::tickerplant
 
     void Tickerplant::run() noexcept
     {
-        // ── Step 1: Pin this thread to its dedicated core ────────────────────
+        // ── Step 1: Pin this thread to its dedicated core (Linux only) ─────
+#if defined(__linux__)
         {
             cpu_set_t cpuset;
             CPU_ZERO(&cpuset);
             CPU_SET(core_id_, &cpuset);
             pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
         }
+#endif
 
         // ── Step 2: The tight hot loop ───────────────────────────────────────
         core::Tick tick;
