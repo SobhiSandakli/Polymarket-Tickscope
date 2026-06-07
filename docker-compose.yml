@@ -1,0 +1,33 @@
+services:
+
+  harvester:
+    build: .
+    command: ./build/src/harvester/polymarket_harvester
+    environment:
+      - POLYMARKET_MARKET_FILTER=${POLYMARKET_MARKET_FILTER:-Spurs vs. Knicks}
+      - POLYMARKET_DATA_DIR=/data
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  espn_collector:
+    image: python:3.12-slim
+    command: >
+      python3 /app/scripts/collectors/espn_nba_collector.py
+      --event ${ESPN_EVENT_ID:-401859965}
+      --out /data/espn_nba_${ESPN_EVENT_ID:-401859965}.csv
+      --interval 1.0
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
