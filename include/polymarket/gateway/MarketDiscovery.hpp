@@ -85,4 +85,18 @@ namespace polymarket::gateway
         const std::vector<TokenMeta> &fresh_tokens,
         const char *path);
 
+    // ---------------------------------------------------------------------------
+    // filter_by_question
+    //
+    // Returns only tokens whose question contains at least one of the
+    // comma-separated substrings in filter_csv (case-insensitive).
+    // Returns all tokens unchanged when filter_csv is empty.
+    //
+    // Used to scope the harvester to a small set of markets (e.g. one game)
+    // instead of the full ~10k-token firehose, eliminating OOM on small instances.
+    // ---------------------------------------------------------------------------
+    [[nodiscard]] std::vector<TokenMeta> filter_by_question(
+        const std::vector<TokenMeta> &tokens,
+        const std::string &filter_csv);
+
 } // namespace polymarket::gateway

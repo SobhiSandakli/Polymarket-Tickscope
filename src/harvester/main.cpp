@@ -85,7 +85,8 @@ static void rediscover_loop(
     polymarket::gateway::WebSocketClient &wsc,
     std::string csv_path,
     std::unordered_set<std::string> known_ids,
-    int interval_mins)
+    int interval_mins,
+    std::string filter_str)
 {
     const int total_seconds = interval_mins * 60;
     constexpr int CHUNK_SECONDS = 30;
@@ -113,9 +114,17 @@ static void rediscover_loop(
             continue;
         }
 
-        // Diff: tokens in fresh that aren't in known_ids.
+        // Always merge full CSV before filtering — same principle as boot sequence.
+        polymarket::gateway::merge_and_write_metadata_csv(fresh, csv_path.c_str());
+
+        // Apply filter for subscription diffing only.
+        const auto &subscribe_fresh = filter_str.empty()
+            ? fresh
+            : polymarket::gateway::filter_by_question(fresh, filter_str);
+
+        // Diff: tokens in subscribe_fresh that aren't in known_ids.
         std::vector<std::string> new_ids;
-        for (const auto &m : fresh)
+        for (const auto &m : subscribe_fresh)
         {
             if (known_ids.find(m.token_id) == known_ids.end())
             {
@@ -127,9 +136,6 @@ static void rediscover_loop(
 
         if (!new_ids.empty())
             wsc.subscribe(new_ids);
-
-        // Always merge CSV: catches metadata changes (question edits, fee changes).
-        polymarket::gateway::merge_and_write_metadata_csv(fresh, csv_path.c_str());
 
         spdlog::info("[rediscover] Cycle complete — {} new token(s), {} total active",
                      new_ids.size(), fresh.size());
@@ -188,40 +194,59 @@ int main(int argc, char *argv[])
                  "→ Tickerplant (core 0) → NVMe journal");
     spdlog::info("Data directory: {}", data_dir);
 
+    // ── Focused market filter (optional) ─────────────────────────────────
+    // Set POLYMARKET_MARKET_FILTER to a comma-separated list of substrings to
+    // subscribe only to markets whose question matches at least one term.
+    // Example: POLYMARKET_MARKET_FILTER="Spurs vs. Knicks"
+    // Unset or empty = full firehose (default behaviour, no change).
+    const std::string filter_str = []() -> std::string {
+        const char *e = std::getenv("POLYMARKET_MARKET_FILTER");
+        return (e && *e) ? e : "";
+    }();
+    if (!filter_str.empty())
+        spdlog::info("Market filter active: '{}'", filter_str);
+
     // ── Boot sequence: discover active CLOB token IDs from Gamma API ─────
     spdlog::info("Fetching active markets from Polymarket Gamma API ...");
     auto market_meta = polymarket::gateway::fetch_active_tokens();
-    if (market_meta.empty())
-    {
-        spdlog::warn("Market discovery returned 0 tokens — "
-                     "WebSocket subscription will be empty. "
-                     "Check network connectivity to gamma-api.polymarket.com.");
-    }
-    else
-    {
-        spdlog::info("Discovered {} active CLOB tokens — subscribing to "
-                     "the full Polymarket firehose.",
-                     market_meta.size());
-    }
 
-    // ── Write / merge metadata sidecar CSV ───────────────────────────────
-    // Merges with any existing CSV rows so delisted-market metadata is
-    // preserved for historical tick JOINs.  Atomic write via .tmp + rename.
+    // ── Write / merge metadata sidecar CSV (always full set) ─────────────
+    // Written before filtering so the CSV always contains every market,
+    // regardless of what the subscription filter selects.
+    // Needed for DuckDB JOINs in research notebooks.
     const std::string csv_path = data_dir + "/market_metadata.csv";
     polymarket::gateway::merge_and_write_metadata_csv(
         market_meta,
         csv_path.c_str());
 
+    // ── Apply subscription filter ─────────────────────────────────────────
+    // subscribe_meta is the filtered view used for WS subscriptions only.
+    // market_meta (full set) is preserved for the CSV above.
+    const auto &subscribe_meta = filter_str.empty()
+        ? market_meta
+        : polymarket::gateway::filter_by_question(market_meta, filter_str);
+
+    if (subscribe_meta.empty())
+    {
+        spdlog::warn("Subscription set is empty — WebSocket will receive no ticks. "
+                     "Check POLYMARKET_MARKET_FILTER or network connectivity.");
+    }
+    else
+    {
+        spdlog::info("Subscribing to {} CLOB token(s) ({} total discovered).",
+                     subscribe_meta.size(), market_meta.size());
+    }
+
     // ── Extract plain token IDs for WebSocket subscription ───────────────
     std::vector<std::string> token_ids;
-    token_ids.reserve(market_meta.size());
-    for (const auto &m : market_meta)
+    token_ids.reserve(subscribe_meta.size());
+    for (const auto &m : subscribe_meta)
         token_ids.push_back(m.token_id);
 
     // ── Build initial known-token set for re-discovery diffing ───────────
     std::unordered_set<std::string> known_ids;
-    known_ids.reserve(market_meta.size() * 2);
-    for (const auto &m : market_meta)
+    known_ids.reserve(subscribe_meta.size() * 2);
+    for (const auto &m : subscribe_meta)
         known_ids.insert(m.token_id);
 
     // ── Tickerplant: drain ring → write WAL journal (core 0) ─────────────
@@ -263,7 +288,8 @@ int main(int argc, char *argv[])
         std::ref(wsc),
         csv_path,              // copied by value into the thread
         std::move(known_ids),  // moved — main no longer needs it
-        rediscover_mins);
+        rediscover_mins,
+        filter_str);           // copied by value into the thread
 
     spdlog::info("Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market ...");
     spdlog::info("Press Ctrl-C to stop.");

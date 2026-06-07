@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm> // std::min
+#include <cctype>    // std::tolower
 #include <cerrno>    // errno
 #include <cstdio>    // std::fopen, std::fprintf, std::fclose, std::fgets, std::rename
 #include <cstring>   // std::strlen, std::strchr, std::atoi, std::strerror
@@ -26,8 +27,8 @@ namespace polymarket::gateway
     // ---------------------------------------------------------------------------
     static constexpr const char *GAMMA_HOST = "gamma-api.polymarket.com";
     static constexpr int GAMMA_PORT = 443;
-    static constexpr int PAGE_SIZE = 200;
-    static constexpr int MAX_PAGES = 25;
+    static constexpr int PAGE_SIZE = 100; // Gamma API hard-caps at 100 per page
+    static constexpr int MAX_PAGES = 50;
     static constexpr int CONNECT_TIMEOUT = 10;
     static constexpr int READ_TIMEOUT = 30;
 
@@ -123,7 +124,7 @@ namespace polymarket::gateway
         {
             std::string path =
                 "/markets?closed=false&active=true"
-                "&order=volume24hr"
+                "&order=volume24hr&ascending=false"
                 "&limit=" +
                 std::to_string(PAGE_SIZE) +
                 "&offset=" + std::to_string(offset);
@@ -442,6 +443,75 @@ namespace polymarket::gateway
         spdlog::info("[market-discovery] Metadata merged → {} total tokens, "
                      "{} active, {} preserved-inactive",
                      existing.size(), fresh_tokens.size(), inactive_count);
+    }
+
+    // ---------------------------------------------------------------------------
+    // filter_by_question
+    // ---------------------------------------------------------------------------
+    [[nodiscard]] std::vector<TokenMeta> filter_by_question(
+        const std::vector<TokenMeta> &tokens,
+        const std::string &filter_csv)
+    {
+        if (filter_csv.empty())
+            return tokens;
+
+        // Parse comma-separated substrings; lowercase each for case-insensitive match.
+        auto to_lower = [](const std::string &s) {
+            std::string out;
+            out.reserve(s.size());
+            for (unsigned char c : s)
+                out += static_cast<char>(std::tolower(c));
+            return out;
+        };
+
+        std::vector<std::string> terms;
+        std::string tok;
+        for (char c : filter_csv)
+        {
+            if (c == ',')
+            {
+                std::string t = to_lower(tok);
+                // trim whitespace
+                auto s = t.find_first_not_of(' ');
+                auto e = t.find_last_not_of(' ');
+                if (s != std::string::npos)
+                    terms.push_back(t.substr(s, e - s + 1));
+                tok.clear();
+            }
+            else
+            {
+                tok += c;
+            }
+        }
+        {
+            std::string t = to_lower(tok);
+            auto s = t.find_first_not_of(' ');
+            auto e = t.find_last_not_of(' ');
+            if (s != std::string::npos)
+                terms.push_back(t.substr(s, e - s + 1));
+        }
+
+        if (terms.empty())
+            return tokens;
+
+        std::vector<TokenMeta> out;
+        out.reserve(tokens.size());
+        for (const auto &m : tokens)
+        {
+            const std::string q_lower = to_lower(m.question);
+            for (const auto &term : terms)
+            {
+                if (q_lower.find(term) != std::string::npos)
+                {
+                    out.push_back(m);
+                    break;
+                }
+            }
+        }
+
+        spdlog::info("[market-discovery] filter '{}' → {}/{} tokens",
+                     filter_csv, out.size(), tokens.size());
+        return out;
     }
 
 } // namespace polymarket::gateway
