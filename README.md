@@ -48,7 +48,7 @@ polymarket/
 │   ├── backtest/                       #   Backtest framework
 │   │   ├── strategies/
 │   │   │   ├── base.py                 #     BaseStrategy interface
-│   │   │   └── convergence_no.py       #     THE strategy (only proven edge)
+│   │   │   └── convergence_no.py       #     ConvergenceNo (tested, shelved)
 │   │   ├── data_loader.py              #     DuckDB-backed tick data loader
 │   │   ├── engine.py                   #     Fill simulation + MTM P&L
 │   │   ├── fills.py                    #     Dynamic fee model (Polymarket spec)
@@ -60,7 +60,7 @@ polymarket/
 │   │   ├── run_backtest.ipynb          #     Standard backtest runner
 │   │   ├── run_optimizer.ipynb         #     Parameter sweep runner
 │   │   ├── oos_validation.ipynb        #     Out-of-sample validation
-│   │   ├── bot_pnl_audit.ipynb         #     Live bot P&L audit
+│   │   ├── bot_pnl_audit.ipynb         #     Paper trading P&L template
 │   │   ├── resolution_detector.ipynb   #     Market resolution analysis
 │   │   └── binance_lag_analysis.ipynb  #     Binance vs Polymarket lag study
 │   └── scripts/
@@ -121,7 +121,7 @@ polymarket/
 ┌──────────────────────────────────────────────────────┐
 │  DuckDB ← Parquet files                             │
 │  Notebooks: backtest, parameter sweep, lag analysis  │
-│  Strategies: ConvergenceNo (only proven edge)        │
+│  Strategies: ConvergenceNo (tested, shelved)         │
 └──────────────────────────────────────────────────────┘
                            │
                            ▼ if edge confirmed
@@ -152,17 +152,18 @@ cmake --build build --target polymarket_bot
 
 ---
 
-## Live Bot
+## Strategy Research
 
-Implements **ConvergenceNo**: buy NO tokens on crypto up/down markets when
-YES drops below a threshold, hold to resolution.
+All strategies were evaluated against a full-fee, fill-simulated backtest engine
+(see `research/`). Every prediction-based approach was killed — see [`docs/FINDINGS.md`](docs/FINDINGS.md)
+for the full breakdown.
 
-| Param | Value | Source |
-|---|---|---|
-| Entry | YES mid < 0.40 | Backtest optimized |
-| Exit | NO mid >= 0.96 | Take profit |
-| Kelly | half-Kelly (f=0.108) | Resolution base rate 74.9% |
-| Win rate | 74.9% (base rate) | 179/239 resolved conditions |
+**ConvergenceNo** (buy NO on BTC up/down markets when YES mid < threshold) showed an
+apparent +$138 edge on an initial 36h dataset, then collapsed on extended out-of-sample
+data — a textbook small-sample overfit. Not deployed.
+
+The execution path in `src/bot/` is fully implemented (paper + live order modes, Kelly
+sizing, time-based expiry exits) and is ready to wire to any validated strategy.
 
 ---
 
@@ -170,9 +171,9 @@ YES drops below a threshold, hold to resolution.
 
 | Strategy | Status | Reason |
 |---|---|---|
-| **ConvergenceNo** | **LIVE** | Only proven edge |
-| Binance lag arb | **RESEARCHING** | Data collection in progress |
-| MeanReversion | Dead | Net -$1,207 (unrealized losses) |
-| ArbYesNo / GraphArb | Dead | Zero opportunities |
-| MarketMaking | Dead | Ask-only fills lose 11.75x spread |
+| **ConvergenceNo** | **Shelved** | Overfit — edge vanished out-of-sample |
+| Binance lag arb | **Active** | Latency measurement in progress |
+| MeanReversion | Dead | Net -$1,207 in simulation |
+| ArbYesNo / GraphArb | Dead | Zero opportunities found |
+| MarketMaking | Dead | Ask-only fills lose 11.75× spread |
 | All others | Dead | See `research/` notebooks |

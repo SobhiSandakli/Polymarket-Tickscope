@@ -74,7 +74,7 @@ joinable by `ts_ms` in analysis.
 |---|---|---|
 | `polymarket_harvester` | `src/harvester/` | Collects ALL Polymarket tick data |
 | `binance_harvester` | `src/binance/` | Collects Binance BTCUSDT quotes |
-| `polymarket_bot` | `src/bot/` | Live trading (ConvergenceNo strategy) |
+| `polymarket_bot` | `src/bot/` | Execution infrastructure (paper + live modes); not deployed — no validated edge |
 
 ## Shared Libraries
 

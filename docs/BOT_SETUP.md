@@ -1,5 +1,8 @@
 # Bot-only AWS setup
 
+> **Status:** reference only. The execution infrastructure is built and paper-tested but
+> not deployed — no strategy survived out-of-sample validation. See `docs/FINDINGS.md`.
+
 This guide deploys only `polymarket_bot` on EC2 and uploads one daily bot artifact to S3.
 
 ## 1) Build bot on EC2
