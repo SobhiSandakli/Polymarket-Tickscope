@@ -90,7 +90,7 @@ Six strategies tested against a fill-simulated backtest engine with Polymarket's
 
 | Strategy | Result | What killed it |
 |---|---|---|
-| **ConvergenceNo** | +$138 on 36h sample → flat OOS | Regime overfit. The 36h window was a BTC downtrend, not a structural edge. |
+| **ConvergenceNo** | +$226 in-sample (~60h) → negative on later data | Overfit. Tuned on a BTC-downtrend window; turned negative when re-run with locked params on a few additional days of data. |
 | **MeanReversion** | -$1,207 simulated | Taker fees up to 2% mean reversion requires a larger edge than the market provides. |
 | **MarketMaking** | Ask fills 11.75× more frequent than bid | Informed traders lift offers when they have directional info. Market maker is adversely selected on every fill. |
 | **ArbYesNo** | Zero opportunities in dataset | YES + NO complement constraint enforced tightly enough that deviations are sub-fee. |

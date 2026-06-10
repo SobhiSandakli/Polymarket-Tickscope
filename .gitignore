@@ -1,9 +1,16 @@
 # Build output
 build/
 
-# Data files — never commit raw tick data, journals, or databases
-data/
+# Data files — never commit raw tick data, journals, or databases.
+# (data/* ignores contents but still allows the explicit exceptions below.)
+data/*
 *.duckdb
+
+# Exception: a tiny committed sample (one NHL game) so event_lag_analysis.ipynb
+# runs end-to-end from a fresh clone. Everything else in data/ stays ignored.
+!data/polymarket_20260607_0130.parquet
+!data/polymarket_20260607_0145.parquet
+!data/espn_nhl_401874173.csv
 *.duckdb.tmp
 
 # Logs — runtime output only

@@ -4,12 +4,17 @@ When a crypto "up or down" market's YES token drops below a threshold,
 the DOWN outcome resolves ~70% of the time. Buy the NO token at the ask
 and hold to resolution (or exit when NO mid >= exit_threshold).
 
-Data-backed edge (36h, 179M ticks):
+⚠️ OVERFIT — in-sample only, NOT a live edge. The numbers below come entirely
+from the ~60h / ~179M-tick capture this strategy was tuned on. Re-run with locked
+parameters on a few additional days of later data, it turned negative. Kept as a
+reference implementation and a cautionary example. See docs/FINDINGS.md.
+
+In-sample stats (~60h, ~179M ticks):
   YES<=0.35 trigger: 253 conditions, 173 wins / 70 losses (68% win rate)
   Avg PnL: +$0.030/share, Total: +$7.70/share before fees
   Avg NO entry price: $0.677, dynamic fee ~$0.008/share
 
-Backtest engine results (with fill simulation + dynamic fees):
+In-sample backtest results (fill simulation + dynamic fees):
   threshold=0.35:       +$89.74  (241 fills, 5.48% ROC on $1,638 capital)
   threshold=0.40:       +$138.53 (255 fills, 8.62% ROC on $1,606 capital)
   threshold=0.35 limit: +$126.39 (229 fills, 8.47% ROC, +$3.80 maker rebate)

@@ -1,8 +1,8 @@
 # Strategy Research Findings
 
 Every strategy was evaluated against a fill-simulated backtest engine with Polymarket's
-dynamic fee model (`research/backtest/`). Dataset: ~179M ticks collected over several
-weeks via the C++ harvester on AWS EC2.
+dynamic fee model (`research/backtest/`). Dataset: ~179M ticks over a ~60h capture window
+via the C++ harvester on AWS EC2.
 
 The thesis across all of them: find an edge — either informational or structural — that
 survives fees and out-of-sample data. None did.
@@ -14,22 +14,28 @@ survives fees and out-of-sample data. None did.
 **Thesis:** BTC "up or down" binary markets resolve NO (down) ~70% of the time once the
 YES token drops below 0.40. Buy NO at the ask and hold to resolution.
 
-**Initial result (36h sample):**
+**In-sample result (~60h window, ~179M ticks):**
 
 | Metric | Value |
 |---|---|
 | Win rate | 74.9% (179/239 conditions) |
-| Simulated P&L | +$138 on ~$1,600 notional |
+| Simulated P&L | +$226 on ~$1,600 notional |
 | Kelly fraction | f = 0.108 (half-Kelly) |
 
-**What killed it:** extending the dataset to several weeks collapsed the edge to near
-zero. The 36h window was a BTC downtrend regime — not a structural inefficiency.
-By the time YES < 0.40, the market has already priced in the direction; the apparent
-edge was momentum at elevated cost.
+**What killed it:** the strategy was built and tuned entirely on this ~60h window. Re-run
+with the parameters locked on a few additional days of later-captured data, it turned
+negative — a textbook overfit. The in-sample window was a BTC downtrend regime, not a
+structural inefficiency: by the time YES < 0.40 the market has already priced the
+direction, so the apparent edge was momentum bought at elevated cost.
 
-**Lesson:** a 36h backtest on a directional asset with a clear recent regime is nearly
-guaranteed to overfit. The sample size needed to distinguish a real edge from noise is
-much larger than it initially appears.
+That follow-up dataset has since been deleted, so the negative out-of-sample run is not
+reproducible from this repo. The locked-parameter harness used for it remains in
+`research/notebooks/oos_validation.ipynb` — point it at a fresh capture to re-test.
+
+**Lesson:** a ~60h backtest on a directional asset in a clear recent regime is nearly
+guaranteed to overfit. The sample needed to separate a real edge from noise is far larger
+than it first appears — and an out-of-sample test with locked parameters is the only thing
+that reliably catches it.
 
 ---
 
