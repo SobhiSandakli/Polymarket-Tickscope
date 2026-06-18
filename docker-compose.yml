@@ -4,7 +4,7 @@ services:
     build: .
     command: ./build/src/harvester/polymarket_harvester
     environment:
-      - POLYMARKET_MARKET_FILTER=${POLYMARKET_MARKET_FILTER:-Spurs vs. Knicks}
+      - POLYMARKET_MARKET_FILTER=${POLYMARKET_MARKET_FILTER:-Bitcoin}
       - POLYMARKET_DATA_DIR=/data
     volumes:
       - ./data:/data
@@ -18,9 +18,10 @@ services:
   espn_collector:
     image: python:3.12-slim
     command: >
-      python3 /app/scripts/collectors/espn_nba_collector.py
-      --event ${ESPN_EVENT_ID:-401859965}
-      --out /data/espn_nba_${ESPN_EVENT_ID:-401859965}.csv
+      python3 /app/scripts/collectors/espn_collector.py
+      --sport ${ESPN_SPORT:-soccer/fifa.world}
+      --event ${ESPN_EVENT_ID:?set ESPN_EVENT_ID to the ESPN game id}
+      --out /data/espn_${ESPN_EVENT_ID}.csv
       --interval 1.0
     volumes:
       - ./scripts:/app/scripts:ro

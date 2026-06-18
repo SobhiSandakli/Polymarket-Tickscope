@@ -89,9 +89,9 @@ ESPN NHL score collector ran simultaneously. Two goals were scored during the ca
 | VGK 2–0 (Goal 2) | 1780796650971 ms | 1780796650971+199 ms | **+199ms** |
 
 The raw lag numbers look small — but they're misleading. The Polymarket WIN_YES token
-first moved at `ts_ms = 1780796554007` — **26 seconds before ESPN detected Goal 1**.
-The full repricing (0.040 → 0.260) happened 23 seconds before the ESPN `score_change`
-event. By the time ESPN updated, the market had already fully repriced.
+first moved **26 seconds before ESPN detected Goal 1** (mid 0.040 → 0.085, fully
+repriced to 0.250 by detection time) and **33 seconds before Goal 2** (0.235 → 0.295).
+By the time ESPN updated, the market had already finished repricing both times.
 
 ```
 Timeline (Goal 1):
@@ -112,6 +112,8 @@ feeds. A sub-second proprietary data source (official league feed or on-venue da
 be required, and those are enterprise-licensed.
 
 Analysis and charts: [`research/notebooks/event_lag_analysis.ipynb`](../research/notebooks/event_lag_analysis.ipynb)
+— runs end-to-end from a fresh clone against the committed sample in
+[`data/samples/sports/`](../data/samples/).
 
 ---
 

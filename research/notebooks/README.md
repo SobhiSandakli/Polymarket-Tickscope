@@ -16,8 +16,20 @@ the headline results to the supporting machinery.
 
 ## Reproducing the headline numbers
 
-The large tick dataset is not committed (see `.gitignore`). To regenerate the analysis
-inputs from your own capture:
+Curated samples are committed under [`data/samples/`](../../data/samples/) — one per
+market class — so notebooks run from a fresh clone:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r research/requirements.txt
+.venv/bin/jupyter lab research/notebooks/
+```
+
+- [`event_lag_analysis.ipynb`](event_lag_analysis.ipynb) runs end-to-end against
+  `data/samples/sports/` (Stanley Cup G4, ~75 min, two goals).
+- `data/samples/crypto/` (BTC + Binance, same clock) is being captured — it will power
+  [`binance_lag_analysis.ipynb`](binance_lag_analysis.ipynb) from a clone.
+- The full ~179M-tick research dataset is not committed; to regenerate analysis inputs
+  from your own capture, see [`docs/CAPTURE_RUNBOOK.md`](../../docs/CAPTURE_RUNBOOK.md):
 
 ```bash
 # 1. Capture ticks (see top-level README)
@@ -25,9 +37,3 @@ inputs from your own capture:
 python3 scripts/harvester/log_to_parquet.py data/polymarket_*.bin
 # 3. Point a notebook's DataLoader at data/ and run all cells
 ```
-
-A tiny sample (one NHL game, ~75 min — two parquet files + the ESPN score csv) **is
-committed** under `data/`, so [`event_lag_analysis.ipynb`](event_lag_analysis.ipynb) runs
-end-to-end straight from a clone. The large crypto/Binance datasets are not committed
-(`data/*` is gitignored — see `.gitignore`); the convergence and Binance-lag notebooks
-need a fresh capture.
