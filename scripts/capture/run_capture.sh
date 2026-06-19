@@ -64,7 +64,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # ── Config ───────────────────────────────────────────────────────────────────
 ESPN_SPORT="${ESPN_SPORT:-soccer/fifa.world}"
 BTC_FILTER="${BTC_FILTER:-Bitcoin Up or Down}"
-DATA_DIR="${DATA_DIR:-$REPO_ROOT/data}"
+DATA_DIR="${DATA_DIR:-$REPO_ROOT/data/capture_$(date -u +%Y%m%d_%H%M%S)}"
 DURATION="${DURATION:-}"
 REDISCOVER_MINS="${REDISCOVER_MINS:-5}"
 PYTHON="${PYTHON:-python3}"
@@ -104,18 +104,39 @@ log "polymarket flt : $COMBINED_FILTER"
 log "matches        : ${#match_events[@]} (sport $ESPN_SPORT)"
 [[ -n "$DURATION" ]] && log "duration       : ${DURATION}s (auto-stop)" || log "duration       : until all matches reach full time / Ctrl-C"
 
-# ── Launch the two continuous C++ harvesters ─────────────────────────────────
-POLYMARKET_DATA_DIR="$DATA_DIR" \
-POLYMARKET_MARKET_FILTER="$COMBINED_FILTER" \
-POLYMARKET_REDISCOVER_MINS="$REDISCOVER_MINS" \
-    "$POLY_BIN" >"$DATA_DIR/polymarket_harvester.log" 2>&1 &
-POLY_PID=$!
-log "polymarket_harvester started (pid $POLY_PID) → polymarket_harvester.log"
+# ── Warn if a background harvester service would collide with this capture ───
+# The default DATA_DIR is a fresh timestamped subdir, which the hourly_flush
+# cron (globs data/*.bin at maxdepth 1) and any systemd harvester (writes to
+# data/) cannot touch. Only warn if the user overrode DATA_DIR to a shared dir.
+if [[ "$DATA_DIR" == "$REPO_ROOT/data" || "$DATA_DIR" == "/opt/polymarket/data" ]]; then
+    for svc in polymarket-harvester binance-harvester; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            log "WARNING: systemd '$svc' is ACTIVE and writes to $DATA_DIR — it will"
+            log "         interleave with / flush away this capture. Stop it first, or"
+            log "         leave DATA_DIR unset to use an isolated subdir."
+        fi
+    done
+fi
 
-BINANCE_DATA_DIR="$DATA_DIR" \
-    "$BNB_BIN" >"$DATA_DIR/binance_harvester.log" 2>&1 &
-BNB_PID=$!
-log "binance_harvester started    (pid $BNB_PID) → binance_harvester.log"
+# ── Harvester launchers (used for initial start AND auto-restart) ─────────────
+# A harvester crash must NOT end the session — the supervisor loop respawns
+# them. Logs APPEND (>>) so a restart doesn't truncate earlier output.
+start_poly() {
+    POLYMARKET_DATA_DIR="$DATA_DIR" \
+    POLYMARKET_MARKET_FILTER="$COMBINED_FILTER" \
+    POLYMARKET_REDISCOVER_MINS="$REDISCOVER_MINS" \
+        "$POLY_BIN" >>"$DATA_DIR/polymarket_harvester.log" 2>&1 &
+    POLY_PID=$!
+    log "polymarket_harvester started (pid $POLY_PID) → polymarket_harvester.log"
+}
+start_bnb() {
+    BINANCE_DATA_DIR="$DATA_DIR" \
+        "$BNB_BIN" >>"$DATA_DIR/binance_harvester.log" 2>&1 &
+    BNB_PID=$!
+    log "binance_harvester started    (pid $BNB_PID) → binance_harvester.log"
+}
+start_poly
+start_bnb
 
 # ── Launch one ESPN collector per match ──────────────────────────────────────
 sport_slug="$(echo "$ESPN_SPORT" | tr '/' '_')"
@@ -139,8 +160,11 @@ decode() {
     local poly_bins=("$DATA_DIR"/polymarket_*.bin)
     local btc_bins=("$DATA_DIR"/btc_*.bin)
     if (( ${#poly_bins[@]} )); then
-        "$PYTHON" "$REPO_ROOT/scripts/harvester/log_to_parquet.py" "${poly_bins[@]}" || \
-            log "WARNING: polymarket decode reported an error"
+        # log_to_parquet.py takes ONE input file — loop over each segment.
+        for f in "${poly_bins[@]}"; do
+            "$PYTHON" "$REPO_ROOT/scripts/harvester/log_to_parquet.py" "$f" || \
+                log "WARNING: polymarket decode failed for $f"
+        done
     else
         log "WARNING: no polymarket_*.bin produced — check polymarket_harvester.log"
     fi
@@ -164,11 +188,26 @@ trap shutdown INT TERM
 
 log "capturing. Watch a match:  tail -f $DATA_DIR/espn_${match_events[0]}.log"
 
-# ── Wait loop: stop when all matches finish (or DURATION, or a harvester dies) ─
+# ── Supervisor loop ──────────────────────────────────────────────────────────
+# Respawn any harvester that dies (segfault, dropped socket) with a short
+# backoff. The session ends ONLY when every match reaches full time, DURATION
+# elapses, or Ctrl-C — never because a harvester crashed. A binance crash in
+# particular must never take down the match capture (it's only the BTC
+# reference feed).
+poly_restarts=0
+bnb_restarts=0
 SECONDS=0
 while true; do
-    kill -0 "$POLY_PID" 2>/dev/null || { log "polymarket_harvester died — stopping (see polymarket_harvester.log)"; break; }
-    kill -0 "$BNB_PID"  2>/dev/null || { log "binance_harvester died — stopping (see binance_harvester.log)"; break; }
+    if ! kill -0 "$POLY_PID" 2>/dev/null; then
+        poly_restarts=$((poly_restarts+1))
+        log "polymarket_harvester died — restarting (#$poly_restarts; see polymarket_harvester.log)"
+        sleep 2; start_poly
+    fi
+    if ! kill -0 "$BNB_PID" 2>/dev/null; then
+        bnb_restarts=$((bnb_restarts+1))
+        log "binance_harvester (BTC reference) died — restarting (#$bnb_restarts; non-fatal)"
+        sleep 2; start_bnb
+    fi
 
     if [[ -n "$DURATION" ]] && (( SECONDS >= DURATION )); then
         log "duration reached"; break
