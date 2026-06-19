@@ -9,10 +9,10 @@ Three independent processes, each pinned to its own CPU core(s):
 │                        AWS EC2 / Local                              │
 │                                                                     │
 │  ┌──────────────────────┐  ┌──────────────────────┐                │
-│  │  polymarket_harvester│  │  binance_harvester   │                │
+│  │  polymarket_harvester│  │  coinbase_harvester   │                │
 │  │  core 0 (TP)         │  │  core 2              │                │
 │  │  core 1 (WS I/O)     │  │                      │                │
-│  │                      │  │  Binance WS ─────────│                │
+│  │                      │  │  Coinbase WS ─────────│                │
 │  │  Polymarket WS ──────│  │  → simdjson parse    │                │
 │  │  → simdjson parse    │  │  → BtcJournal        │                │
 │  │  → MPSC ring buffer  │  │  → btc_*.bin files   │                │
@@ -166,7 +166,7 @@ Struct format string: `<QddddBB80s6x`
 
 | Field | C type | Bytes | Notes |
 |---|---|---|---|
-| timestamp | uint64_t | 8 | Unix epoch ms, same clock as Binance feed |
+| timestamp | uint64_t | 8 | Unix epoch ms, same clock as Coinbase feed |
 | price | double | 8 | probability [0, 1] |
 | size | double | 8 | order quantity |
 | best_bid | double | 8 | 0.0 for LAST_TRADE events |
@@ -176,7 +176,7 @@ Struct format string: `<QddddBB80s6x`
 | asset_id | char[80] | 80 | token ID (Polymarket CLOB asset) |
 | (padding) | — | 6 | cache-line alignment |
 
-### Binance BtcTick (64 bytes, 1 cache line)
+### Coinbase BtcTick (64 bytes, 1 cache line)
 
 | Field | C type | Bytes |
 |---|---|---|
@@ -195,5 +195,5 @@ Both use the same local system clock → directly joinable by `ts_ms` in DuckDB.
 | Binary | Source | Purpose |
 |---|---|---|
 | `polymarket_harvester` | `src/harvester/` | Focused tick data capture via `POLYMARKET_MARKET_FILTER` |
-| `binance_harvester` | `src/binance/` | Binance BTCUSDT top-of-book feed |
+| `coinbase_harvester` | `src/coinbase/` | Coinbase BTC-USD top-of-book feed |
 | `polymarket_bot` | `src/bot/` | Full execution path: FeedHandler → BookState → StrategyEngine → OrderGateway (paper + live). Not deployed — no strategy survived validation. |

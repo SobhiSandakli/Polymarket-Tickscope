@@ -1,5 +1,5 @@
 [Unit]
-Description=Binance BTC Price Harvester
+Description=Coinbase BTC Price Harvester
 After=network-online.target
 Wants=network-online.target
 
@@ -8,9 +8,9 @@ Type=simple
 User=root
 Group=ubuntu
 WorkingDirectory=/opt/polymarket
-EnvironmentFile=-/etc/default/binance-harvester
-Environment=BINANCE_DATA_DIR=/opt/polymarket/data
-ExecStart=/opt/polymarket/build/src/binance/binance_harvester
+EnvironmentFile=-/etc/default/coinbase-harvester
+Environment=COINBASE_DATA_DIR=/opt/polymarket/data
+ExecStart=/opt/polymarket/build/src/coinbase/coinbase_harvester
 Restart=always
 RestartSec=3
 KillSignal=SIGINT

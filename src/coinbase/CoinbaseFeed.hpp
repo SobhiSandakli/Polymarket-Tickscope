@@ -1,7 +1,7 @@
 #pragma once
-// BinanceFeed.hpp
+// CoinbaseFeed.hpp
 //
-// Connects to the Binance BTCUSDT bookTicker WebSocket stream, parses each
+// Connects to the Coinbase BTCUSDT ticker WebSocket stream, parses each
 // quote update with simdjson, and writes the result to a BtcJournal.
 //
 // Thread model
@@ -19,7 +19,7 @@
 //  • No std::mutex in the message path.
 //  • File I/O is buffered in BtcJournal (64 KB buffer, flushed on full/rotate).
 //
-// Binance bookTicker message format:
+// Coinbase ticker message format:
 //   {"u":400900217,"s":"BTCUSDT","b":"98400.50","B":"1.23","a":"98401.00","A":"0.56"}
 //   Fields used: "b" (best bid), "a" (best ask).
 
@@ -28,23 +28,23 @@
 #include <atomic>
 #include <string>
 
-namespace binance
+namespace coinbase
 {
 
-    class BinanceFeed
+    class CoinbaseFeed
     {
     public:
         // journal  — binary file writer (BtcTick records)
-        // url      — Binance WebSocket endpoint
+        // url      — Coinbase WebSocket endpoint
         // core_id  — CPU core to pin the I/O thread to (-1 = no pinning)
-        explicit BinanceFeed(BtcJournal &journal,
+        explicit CoinbaseFeed(BtcJournal &journal,
                              const char *url,
                              int core_id);
-        ~BinanceFeed();
+        ~CoinbaseFeed();
 
         // Non-copyable: owns an IXWebSocket connection.
-        BinanceFeed(const BinanceFeed &) = delete;
-        BinanceFeed &operator=(const BinanceFeed &) = delete;
+        CoinbaseFeed(const CoinbaseFeed &) = delete;
+        CoinbaseFeed &operator=(const CoinbaseFeed &) = delete;
 
         // Starts the WebSocket connection and blocks until stop() is called.
         void run();
@@ -73,4 +73,4 @@ namespace binance
         std::atomic<double> mid_{0.0}; // latest BTC mid, readable from any thread
     };
 
-} // namespace binance
+} // namespace coinbase

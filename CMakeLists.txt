@@ -132,5 +132,5 @@ add_subdirectory(src)
 add_subdirectory(src/bot)
 add_subdirectory(tests)
 
-# Note: src/harvester, src/binance, and src/bot are added via src/CMakeLists.txt
+# Note: src/harvester, src/coinbase, and src/bot are added via src/CMakeLists.txt
 # and the root-level add_subdirectory(src/bot) above.

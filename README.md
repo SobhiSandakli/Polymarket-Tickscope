@@ -4,7 +4,7 @@
 
 Low-latency C++20 market-data infrastructure and a Python research layer, built to answer one question: **how efficient are prediction markets?**
 
-The hypothesis was that Polymarket reprices slower than the underlying information arrives — across crypto (Binance → BTC binary markets) and live sports (score feeds → match markets) — and that the lag is tradable. Six strategies were built and tested against live captured data. **Every one was killed**, including one that looked profitable until an out-of-sample test with locked parameters reversed it. The market priced everything reachable from public data before this pipeline could: in the cleanest measurement, Polymarket fully repriced a Stanley Cup goal **26–33 seconds before ESPN's API detected it**.
+The hypothesis was that Polymarket reprices slower than the underlying information arrives — across crypto (Coinbase → BTC binary markets) and live sports (score feeds → match markets) — and that the lag is tradable. Six strategies were built and tested against live captured data. **Every one was killed**, including one that looked profitable until an out-of-sample test with locked parameters reversed it. The market priced everything reachable from public data before this pipeline could: in the cleanest measurement, Polymarket fully repriced a Stanley Cup goal **26–33 seconds before ESPN's API detected it**.
 
 ![Polymarket reprice vs ESPN goal detection](research/notebooks/lag_chart_stanley_cup_g4.png)
 
@@ -17,7 +17,7 @@ The hypothesis was that Polymarket reprices slower than the underlying informati
 | Layer | What it does |
 |---|---|
 | **Capture (C++20)** | WebSocket → simdjson → lock-free MPSC ring → binary journal. ~2–6μs hot path, no allocation, no locks. Generic over markets: crypto, sports, anything on Polymarket's CLOB. |
-| **Reference feeds** | Binance BTCUSDT harvester (same-host, same-clock for direct lag joins) + sport-generic ESPN score collector. |
+| **Reference feeds** | Coinbase BTC-USD harvester (same-host, same-clock for direct lag joins) + sport-generic ESPN score collector. |
 | **Research (Python)** | DuckDB + Parquet. Fill-simulated backtest engine with Polymarket's full dynamic fee model, parameter-sweep optimizer, locked-parameter OOS validation harness. |
 | **Execution (C++20)** | Full bot path FeedHandler → BookState → StrategyEngine → OrderGateway with Kelly sizing, paper + live modes. Never deployed live — no strategy survived validation. |
 | **Findings** | Six strategies, six verdicts, all documented with the data that killed them: [`docs/FINDINGS.md`](docs/FINDINGS.md). |
@@ -71,7 +71,7 @@ python3 -m venv .venv && .venv/bin/pip install -r research/requirements.txt
 |---|---|---|
 | [`event_lag_analysis.ipynb`](research/notebooks/event_lag_analysis.ipynb) — sports lag measurement | `data/samples/sports/` (Stanley Cup G4) | ✅ |
 | [`oos_validation.ipynb`](research/notebooks/oos_validation.ipynb) — the locked-parameter test that killed ConvergenceNo | executed outputs committed | results visible on GitHub |
-| [`binance_lag_analysis.ipynb`](research/notebooks/binance_lag_analysis.ipynb) — BTC cross-venue lag | `data/samples/crypto/` (capture in progress) | soon |
+| [`coinbase_lag_analysis.ipynb`](research/notebooks/coinbase_lag_analysis.ipynb) — BTC cross-venue lag | `data/samples/crypto/` (capture in progress) | soon |
 | [`run_backtest.ipynb`](research/notebooks/run_backtest.ipynb) / [`run_optimizer.ipynb`](research/notebooks/run_optimizer.ipynb) | full dataset (not committed) | outputs committed |
 
 Capturing your own data — including the AWS crypto campaign and World Cup 2026 matches — is documented in [`docs/CAPTURE_RUNBOOK.md`](docs/CAPTURE_RUNBOOK.md).
@@ -88,7 +88,7 @@ Six strategies tested against a fill-simulated backtest with Polymarket's full d
 | **MeanReversion** | -$1,207 simulated | Taker fees (up to 2%) exceed the edge mean reversion provides. |
 | **MarketMaking** | Ask fills 11.75× more frequent than bid | Adverse selection: in a binary market, whoever lifts your offer knows something. |
 | **ArbYesNo** | Zero opportunities in 179M ticks | YES+NO complement enforced tighter than round-trip fees. |
-| **Binance lag arb** | No exploitable lag at same-host measurement floor | Market prices Binance moves within the same second. Colocation-scale untested. |
+| **Coinbase lag arb** | No exploitable lag at same-host measurement floor | Market prices Coinbase moves within the same second. Colocation-scale untested. |
 | **Sports lag arb** | Market leads every accessible feed by 15–30s | Measured live during the Stanley Cup Finals (chart above). |
 
 **The honest conclusion:** at every timescale and information set accessible to a non-colocated participant, Polymarket was efficient — any signal computable from public data was already in the price, and the fee structure widens the no-arbitrage band beyond every deviation found. What remains untested is the sub-second regime, which requires colocation or a faster reference feed. The infrastructure to run that test is this repo.
@@ -107,7 +107,7 @@ Six strategies tested against a fill-simulated backtest with Polymarket's full d
 │                                     ───► Tickerplant (core 0)
 │                                          ───► .bin journal
 │                                                    │
-│  Binance WS ──────► simdjson ───► BtcTick (64B)    │
+│  Coinbase WS ──────► simdjson ───► BtcTick (64B)    │
 │  (core 2)                       ───► BtcJournal    │
 │                                      ───► .bin journal
 │                                                    │
@@ -150,7 +150,7 @@ Deep-dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Decision records: [
 polymarket/
 ├── src/
 │   ├── harvester/          # Polymarket tick capture (market-generic via filter)
-│   ├── binance/            # Binance BTCUSDT reference feed (same-clock lag joins)
+│   ├── coinbase/            # Coinbase BTC-USD reference feed (same-clock lag joins)
 │   ├── bot/                # Execution path: FeedHandler → StrategyEngine → OrderGateway
 │   ├── gateway/            # WebSocket client + Gamma API market discovery
 │   ├── tickerplant/        # Journal writer (consumer side of MPSC ring)
@@ -187,7 +187,7 @@ polymarket/
 
 ```bash
 cmake --build build --target polymarket_harvester   # tick data capture
-cmake --build build --target binance_harvester      # Binance BTC reference feed
+cmake --build build --target coinbase_harvester      # Coinbase BTC reference feed
 cmake --build build --target polymarket_bot         # execution infra (paper + live)
 ctest --test-dir build                               # 4 test suites
 ```

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-btc_to_parquet.py — Binance BtcTick journal decoder.
+btc_to_parquet.py — Coinbase BtcTick journal decoder.
 
-Reads the binary journal written by the Binance harvester (64-byte BtcTick
+Reads the binary journal written by the Coinbase harvester (64-byte BtcTick
 records), decodes every field, and writes a typed Parquet file.
 
 Binary layout (matches include/polymarket/core/BtcTick.hpp):
     Offset  Field        C type      Bytes   Notes
        0    timestamp    uint64_t      8     Unix epoch ms (local clock)
-       8    bid          double        8     Binance BTCUSDT best bid
-      16    ask          double        8     Binance BTCUSDT best ask
+       8    bid          double        8     Coinbase BTCUSDT best bid
+      16    ask          double        8     Coinbase BTCUSDT best ask
       24    mid          double        8     (bid+ask)/2 precomputed
       32    (padding)    —            32     cache-line alignment
                                     ────
@@ -49,7 +49,7 @@ assert TICK_SIZE == 64, f"TICK_SIZE={TICK_SIZE}, expected 64 — struct mismatch
 # ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Decode a Binance BtcTick binary journal to Parquet.",
+        description="Decode a Coinbase BtcTick binary journal to Parquet.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(

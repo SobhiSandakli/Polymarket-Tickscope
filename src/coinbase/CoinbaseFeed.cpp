@@ -1,9 +1,9 @@
-// BinanceFeed.cpp
+// CoinbaseFeed.cpp
 //
 // IXWebSocket-based client for the Coinbase Advanced Trade ticker stream.
 // Parses JSON with simdjson.  Writes BtcTick records to BtcJournal.
 //
-// Why Coinbase: Binance.com returns HTTP 451 from AWS US-region IPs.
+// Why Coinbase: Coinbase.com returns HTTP 451 from AWS US-region IPs.
 // Coinbase ticker is public (no auth), sends bid/ask on every quote change.
 //
 // Subscription (sent on Open):
@@ -15,7 +15,7 @@
 // The I/O thread is pinned to a specific CPU core on the first Open event
 // to minimise context-switch latency and keep the L1 cache hot.
 
-#include "BinanceFeed.hpp"
+#include "CoinbaseFeed.hpp"
 
 #include <ixwebsocket/IXWebSocket.h>
 #include <simdjson.h>
@@ -31,15 +31,15 @@
 #include <sched.h>
 #endif
 
-namespace binance
+namespace coinbase
 {
 
     // ── Buffer constants ─────────────────────────────────────────────────────
-    static constexpr std::size_t MAX_PAYLOAD = 4 * 1024; // bookTicker is ~120 bytes
+    static constexpr std::size_t MAX_PAYLOAD = 4 * 1024; // ticker is ~120 bytes
     static constexpr std::size_t SIMD_PAD    = 64;
 
     // ── Pimpl: hides IXWebSocket from the public header ─────────────────────
-    struct BinanceFeed::Impl
+    struct CoinbaseFeed::Impl
     {
         ix::WebSocket ws;
     };
@@ -54,9 +54,9 @@ namespace binance
         CPU_ZERO(&cpuset);
         CPU_SET(core_id, &cpuset);
         if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0)
-            spdlog::info("[binance] I/O thread pinned to core {}", core_id);
+            spdlog::info("[coinbase] I/O thread pinned to core {}", core_id);
         else
-            spdlog::warn("[binance] Failed to pin I/O thread to core {}", core_id);
+            spdlog::warn("[coinbase] Failed to pin I/O thread to core {}", core_id);
 #endif
     }
 
@@ -70,7 +70,7 @@ namespace binance
     }
 
     // ── Constructor / Destructor ─────────────────────────────────────────────
-    BinanceFeed::BinanceFeed(BtcJournal &journal,
+    CoinbaseFeed::CoinbaseFeed(BtcJournal &journal,
                              const char *url,
                              int core_id)
         : impl_(new Impl()),
@@ -80,20 +80,20 @@ namespace binance
     {
     }
 
-    BinanceFeed::~BinanceFeed()
+    CoinbaseFeed::~CoinbaseFeed()
     {
         stop();
         delete impl_;
     }
 
     // ── stop() — signal-handler-safe ─────────────────────────────────────────
-    void BinanceFeed::stop() noexcept
+    void CoinbaseFeed::stop() noexcept
     {
         running_.store(false, std::memory_order_relaxed);
     }
 
     // ── run() — blocks until stop() is called ────────────────────────────────
-    void BinanceFeed::run()
+    void CoinbaseFeed::run()
     {
         running_.store(true, std::memory_order_relaxed);
 
@@ -101,7 +101,7 @@ namespace binance
         ws.setUrl(url_);
         ws.setHandshakeTimeout(10);
 
-        // Ping/pong keepalive (Binance drops idle connections after 5 min).
+        // Ping/pong keepalive (Coinbase drops idle connections after 5 min).
         ws.setPingInterval(30);
 
         // Message callback — runs on the IXWebSocket I/O thread.
@@ -110,7 +110,7 @@ namespace binance
             {
                 if (msg->type == ix::WebSocketMessageType::Open)
                 {
-                    spdlog::info("[binance] Connected to {}", url_);
+                    spdlog::info("[coinbase] Connected to {}", url_);
                     pin_to_core(core_id_);
                     // Coinbase requires an explicit subscription message.
                     impl_->ws.sendText(
@@ -118,12 +118,12 @@ namespace binance
                 }
                 else if (msg->type == ix::WebSocketMessageType::Close)
                 {
-                    spdlog::warn("[binance] Disconnected (code={} reason={})",
+                    spdlog::warn("[coinbase] Disconnected (code={} reason={})",
                                  msg->closeInfo.code, msg->closeInfo.reason);
                 }
                 else if (msg->type == ix::WebSocketMessageType::Error)
                 {
-                    spdlog::error("[binance] Error: {}", msg->errorInfo.reason);
+                    spdlog::error("[coinbase] Error: {}", msg->errorInfo.reason);
                 }
                 else if (msg->type == ix::WebSocketMessageType::Message)
                 {
@@ -155,7 +155,7 @@ namespace binance
     //   {"type":"heartbeat", ...}       — keepalive (ignore)
     //
     // We only record ticker messages with valid bid/ask.
-    void BinanceFeed::on_message(const std::string &payload)
+    void CoinbaseFeed::on_message(const std::string &payload)
     {
         if (payload.empty() || payload.size() > MAX_PAYLOAD)
             return;
@@ -212,4 +212,4 @@ namespace binance
         journal_.write(tick);
     }
 
-} // namespace binance
+} // namespace coinbase

@@ -6,12 +6,12 @@
 ## Context
 
 The latency-arb thesis requires measuring the time delta between an event on a reference
-feed (Binance BTC price, ESPN score) and the corresponding reprice on Polymarket. This
+feed (Coinbase BTC price, ESPN score) and the corresponding reprice on Polymarket. This
 requires timestamps from both feeds to be directly comparable.
 
 ## Decision
 
-All harvesters (Polymarket, Binance, and future reference feeds) timestamp ticks using
+All harvesters (Polymarket, Coinbase, and future reference feeds) timestamp ticks using
 the same local system clock: `std::chrono::system_clock` in milliseconds since Unix
 epoch, stored as `uint64_t ts_ms`. No per-feed clock offsets, no NTP correction logic.
 

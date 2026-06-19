@@ -6,9 +6,9 @@
 // Journal naming: btc_YYYYMMDD_HHMM.bin (mirrors Polymarket harvester convention).
 // Rotation: every 15 minutes by default (configurable).
 //
-// Called directly from the BinanceFeed WebSocket I/O thread.
+// Called directly from the CoinbaseFeed WebSocket I/O thread.
 // No ring buffer: single producer, single consumer (file I/O).
-// Acceptable because Binance bookTicker fires ~100–1000/sec and each record
+// Acceptable because Coinbase ticker fires ~100–1000/sec and each record
 // is 64 bytes — peak throughput is ~64 KB/s, trivial for NVMe.
 //
 // Buffering: ticks accumulate in a fixed 64 KB buffer (1024 ticks).
@@ -25,7 +25,7 @@
 #include <ctime>
 #include <string>
 
-namespace binance
+namespace coinbase
 {
 
     class BtcJournal
@@ -49,7 +49,7 @@ namespace binance
         BtcJournal &operator=(const BtcJournal &) = delete;
 
         // Write one tick to the journal.
-        // Called from the BinanceFeed I/O thread — must be fast.
+        // Called from the CoinbaseFeed I/O thread — must be fast.
         void write(const polymarket::core::BtcTick &tick) noexcept
         {
             rotate_if_needed(tick.timestamp);
@@ -153,7 +153,7 @@ namespace binance
             // is owned by another user/process), we cannot persist these ticks.
             // DROP them and reset the buffer — never leave buf_pos_ at/above
             // BUF_CAP, or the next write() indexes past buf_[] and corrupts
-            // memory (was the cause of the 2026-06-18 binance segfault).
+            // memory (was the cause of the 2026-06-18 coinbase segfault).
             if (!file_)
             {
                 spdlog::warn("[journal] No open segment — dropping {} buffered "
@@ -170,4 +170,4 @@ namespace binance
         }
     };
 
-} // namespace binance
+} // namespace coinbase

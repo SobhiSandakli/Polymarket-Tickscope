@@ -6,10 +6,10 @@ namespace polymarket::core
 {
 
     // ---------------------------------------------------------------------------
-    // BtcTick — one BTCUSDT quote update from the Binance bookTicker stream.
+    // BtcTick — one BTCUSDT quote update from the Coinbase ticker stream.
     //
     // Captures the best bid/ask at the instant of the update.  Written to a
-    // rotating binary journal by the Binance harvester, then converted to
+    // rotating binary journal by the Coinbase harvester, then converted to
     // Parquet by scripts/harvester/btc_to_parquet.py for offline analysis.
     //
     // Memory layout (x86-64 / ARM64, LP64 ABI)
@@ -26,8 +26,8 @@ namespace polymarket::core
     // ───────────────
     //  timestamp : Unix epoch milliseconds — local clock, same reference as
     //              Tick.timestamp so the two datasets are directly joinable.
-    //  bid       : Binance BTCUSDT spot best bid price (USD).
-    //  ask       : Binance BTCUSDT spot best ask price (USD).
+    //  bid       : Coinbase BTCUSDT spot best bid price (USD).
+    //  ask       : Coinbase BTCUSDT spot best ask price (USD).
     //  mid       : (bid + ask) / 2.0 — precomputed to save division in analysis.
     //
     // Python struct format for decoding: '<Qddd32x'
@@ -41,8 +41,8 @@ namespace polymarket::core
     struct alignas(64) BtcTick
     {
         uint64_t timestamp; // Unix epoch milliseconds (local clock)
-        double   bid;       // Binance BTCUSDT best bid price
-        double   ask;       // Binance BTCUSDT best ask price
+        double   bid;       // Coinbase BTCUSDT best bid price
+        double   ask;       // Coinbase BTCUSDT best ask price
         double   mid;       // (bid + ask) / 2.0
         char     _pad[32];  // pad to one cache line
     };

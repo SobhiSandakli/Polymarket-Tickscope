@@ -30,7 +30,7 @@ set -euo pipefail
 # ── Configuration (override via environment or edit defaults here) ────────────
 DATA_DIR="${POLYMARKET_DATA_DIR:-/opt/polymarket/data}"
 PARQUET_DIR="${POLYMARKET_PARQUET_DIR:-/opt/polymarket/parquet}"
-BINANCE_DIR="${POLYMARKET_BINANCE_DIR:-/opt/polymarket/binance}"
+COINBASE_DIR="${POLYMARKET_COINBASE_DIR:-/opt/polymarket/coinbase}"
 S3_URI="${POLYMARKET_S3_URI:-s3://CHANGE_ME/polymarket}"
 PYTHON="${POLYMARKET_PYTHON:-/usr/bin/python3}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,7 +51,7 @@ if [[ ! -d "$DATA_DIR" ]]; then
     exit 1
 fi
 
-mkdir -p "$PARQUET_DIR" "$BINANCE_DIR"
+mkdir -p "$PARQUET_DIR" "$COINBASE_DIR"
 
 # ── Find closed .bin files ────────────────────────────────────────────────────
 # -mmin +N  →  files whose mtime is MORE than N minutes in the past.
@@ -138,7 +138,7 @@ for i in "${!converted_bins[@]}"; do
     echo "$LOG_PFX  deleted: $(basename "$bin_file")  $(basename "$parquet_file")"
 done
 
-# ── Process Binance BTC journals (btc_*.bin) ────────────────────────────────
+# ── Process Coinbase BTC journals (btc_*.bin) ────────────────────────────────
 mapfile -t closed_btc < <(
     find "$DATA_DIR" -maxdepth 1 -name "btc_*.bin" \
          -mmin +"$MIN_AGE_MINUTES" -type f | sort
@@ -149,12 +149,12 @@ if [[ ${#closed_btc[@]} -gt 0 ]]; then
 
     for bin_file in "${closed_btc[@]}"; do
         base="$(basename "$bin_file" .bin)"
-        parquet_file="$BINANCE_DIR/${base}.parquet"
+        parquet_file="$COINBASE_DIR/${base}.parquet"
 
         echo "$LOG_PFX  convert: $bin_file → $parquet_file"
 
         if "$PYTHON" "$SCRIPT_DIR/btc_to_parquet.py" "$bin_file" "$parquet_file"; then
-            s3_dest="${S3_URI}/binance/${base}.parquet"
+            s3_dest="${S3_URI}/coinbase/${base}.parquet"
             if aws s3 cp "$parquet_file" "$s3_dest" --no-progress --only-show-errors; then
                 rm -f "$bin_file" "$parquet_file"
                 echo "$LOG_PFX  ok: uploaded + cleaned ${base}"

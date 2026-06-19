@@ -1,31 +1,35 @@
-# Binance Harvester — AWS Setup
+# Coinbase Harvester — AWS Setup
 
 Runs alongside the Polymarket harvester on the same EC2 instance.
-Collects Binance BTCUSDT bookTicker quotes with ms-precision timestamps.
+Collects Coinbase BTC-USD ticker quotes with ms-precision timestamps.
+
+> Why Coinbase, not Binance? Binance.com returns HTTP 451 (geo-blocked) from
+> US-region AWS IPs. Coinbase is US-domiciled and accessible from any AWS region;
+> BTC-USD liquidity is equivalent for this lag-research purpose.
 
 ## Build
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target binance_harvester -j$(nproc)
+cmake --build build --target coinbase_harvester -j$(nproc)
 ```
 
 ## Deploy
 
 ```bash
 # Copy service file
-sudo cp deploy/binance/binance-harvester.service /etc/systemd/system/
+sudo cp deploy/coinbase/coinbase-harvester.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # Enable and start
-sudo systemctl enable binance-harvester
-sudo systemctl start binance-harvester
-sudo journalctl -u binance-harvester -f
+sudo systemctl enable coinbase-harvester
+sudo systemctl start coinbase-harvester
+sudo journalctl -u coinbase-harvester -f
 ```
 
 ## Data Output
 
-Binary journals land in `$BINANCE_DATA_DIR` (default: `/opt/polymarket/data`):
+Binary journals land in `$COINBASE_DATA_DIR` (default: `/opt/polymarket/data`):
 ```
 btc_20260307_0930.bin   # 15-min rotation, same as Polymarket harvester
 btc_20260307_0945.bin
@@ -47,7 +51,7 @@ python3 scripts/harvester/btc_to_parquet.py btc_20260307_0930.bin
 ls -la /opt/polymarket/data/btc_*.bin
 
 # Check logs
-sudo journalctl -u binance-harvester --since "5 min ago"
+sudo journalctl -u coinbase-harvester --since "5 min ago"
 
 # Spot-check a record
 python3 -c "

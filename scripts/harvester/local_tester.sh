@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # local_tester.sh — converts completed journal segments to Parquet (local dev)
 #
-# Watches DATA_DIR for closed .bin files (Polymarket + Binance) and converts
+# Watches DATA_DIR for closed .bin files (Polymarket + Coinbase) and converts
 # them to Parquet for use in research notebooks.
 #
 # A file is "closed" when its mtime is older than the rotation interval plus
@@ -68,7 +68,7 @@ while true; do
         fi
     done
 
-    # ── Binance BTC journals ─────────────────────────────────────────────────
+    # ── Coinbase BTC journals ─────────────────────────────────────────────────
     for bin_file in "$DATA_DIR"/btc_*.bin; do
         [ -f "$bin_file" ] || continue
         age=$((now - $(file_mtime "$bin_file")))

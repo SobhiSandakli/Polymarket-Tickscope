@@ -2,7 +2,7 @@
 
 Step-by-step procedures for the two capture campaigns that feed `data/samples/`:
 
-- **A. Crypto** — Polymarket BTC 5-min up/down markets + Binance BTCUSDT, same host, same clock (AWS)
+- **A. Crypto** — Polymarket BTC 5-min up/down markets + Coinbase BTC-USD, same host, same clock (AWS)
 - **B. World Cup 2026** — Polymarket match markets + ESPN soccer score feed
 
 Both produce binary journals decoded offline to Parquet. Sample curation rules at the end.
@@ -25,7 +25,7 @@ Both produce binary journals decoded offline to Parquet. Sample curation rules a
 sudo apt-get update && sudo apt-get install -y build-essential cmake git libssl-dev libz-dev
 sudo git clone <repo-url> /opt/polymarket && cd /opt/polymarket
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target polymarket_harvester binance_harvester -j"$(nproc)"
+cmake --build build --target polymarket_harvester coinbase_harvester -j"$(nproc)"
 ```
 
 ### Configure + run both harvesters via systemd
@@ -35,16 +35,16 @@ cmake --build build --target polymarket_harvester binance_harvester -j"$(nproc)"
 echo 'POLYMARKET_MARKET_FILTER="Bitcoin Up or Down"' | sudo tee /etc/default/polymarket-harvester
 
 sudo cp deploy/harvester/polymarket-harvester.service /etc/systemd/system/
-sudo cp deploy/binance/binance-harvester.service /etc/systemd/system/
+sudo cp deploy/coinbase/coinbase-harvester.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now polymarket-harvester binance-harvester
+sudo systemctl enable --now polymarket-harvester coinbase-harvester
 ```
 
 Verify within a minute or two:
 
 ```bash
 journalctl -u polymarket-harvester -n 20   # token count should be small (filtered), WS connected
-journalctl -u binance-harvester -n 20      # Binance WS connected
+journalctl -u coinbase-harvester -n 20      # Coinbase WS connected
 ls -lh /opt/polymarket/data/                # polymarket_*.bin and btc_*.bin growing;
                                             # market_metadata.csv written at startup
 ```
@@ -60,7 +60,7 @@ Notes:
 ### Stop, decode, pull down
 
 ```bash
-sudo systemctl stop polymarket-harvester binance-harvester
+sudo systemctl stop polymarket-harvester coinbase-harvester
 
 cd /opt/polymarket
 python3 scripts/harvester/log_to_parquet.py data/polymarket_*.bin
@@ -135,7 +135,7 @@ so prefer capturing several matches and keeping the ones with goals.
 
 `scripts/capture/run_capture.sh` orchestrates the whole session: it runs the Polymarket
 harvester (subscribed to every match market **plus** the BTC up/down markets via one
-comma-separated OR filter), the Binance reference harvester (continuously), and one ESPN
+comma-separated OR filter), the Coinbase reference harvester (continuously), and one ESPN
 collector per match. It stops when every match reaches full time — or on Ctrl-C — and
 then decodes all journals to Parquet. Capturing back-to-back fixtures in one session is
 the way to handle 0–0 risk: BTC capture runs the whole time, and you keep whichever match
@@ -164,7 +164,7 @@ Rules for what gets committed (everything else in `data/` stays gitignored):
 1. **Small.** Trim to the analysis window. Target ≤20 MB per market class. For crypto:
    a contiguous 2–4h window where both feeds overlap, filtered to ticks with
    `best_bid > 0`. For sports: the game window only.
-2. **Joint.** Crypto samples must include both the Polymarket parquet *and* the Binance
+2. **Joint.** Crypto samples must include both the Polymarket parquet *and* the Coinbase
    parquet for the **same window** — the whole point is the same-clock join.
 3. **Metadata included.** Trim `market_metadata.csv` to the asset IDs present in the
    sample (`market_metadata_btc.csv` / keep token→question mapping for sports).

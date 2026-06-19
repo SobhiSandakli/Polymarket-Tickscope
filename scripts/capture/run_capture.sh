@@ -12,7 +12,7 @@
 #                                  "Canada vs. Qatar,Mexico vs. Korea,Bitcoin Up or Down"
 #                              → data/polymarket_YYYYMMDD_HHMM.bin (+ market_metadata.csv)
 #
-#   2. binance_harvester     — Binance BTCUSDT top-of-book, the BTC reference feed.
+#   2. coinbase_harvester     — Coinbase BTCUSDT top-of-book, the BTC reference feed.
 #                              Runs continuously across all matches.
 #                              → data/btc_YYYYMMDD_HHMM.bin
 #
@@ -72,7 +72,7 @@ REDISCOVER_MINS="${REDISCOVER_MINS:-5}"
 PYTHON="${PYTHON:-python3}"
 
 POLY_BIN="$REPO_ROOT/build/src/harvester/polymarket_harvester"
-BNB_BIN="$REPO_ROOT/build/src/binance/binance_harvester"
+CB_BIN="$REPO_ROOT/build/src/coinbase/coinbase_harvester"
 ESPN_PY="$REPO_ROOT/scripts/collectors/espn_collector.py"
 
 # ── Parse matches (each arg: "<filter>@<espn event id>") ─────────────────────
@@ -93,9 +93,9 @@ COMBINED_FILTER="$(IFS=,; echo "${match_filters[*]}"),${BTC_FILTER}"
 log() { echo "[run_capture $(date -u '+%H:%M:%SZ')] $*"; }
 
 # ── Preflight ────────────────────────────────────────────────────────────────
-for f in "$POLY_BIN" "$BNB_BIN"; do
+for f in "$POLY_BIN" "$CB_BIN"; do
     [[ -x "$f" ]] || { echo "ERROR: missing binary $f — build first:" >&2
-        echo "  cmake --build build --target polymarket_harvester binance_harvester -j\"\$(nproc)\"" >&2
+        echo "  cmake --build build --target polymarket_harvester coinbase_harvester -j\"\$(nproc)\"" >&2
         exit 1; }
 done
 [[ -f "$ESPN_PY" ]] || { echo "ERROR: missing $ESPN_PY" >&2; exit 1; }
@@ -111,7 +111,7 @@ log "matches        : ${#match_events[@]} (sport $ESPN_SPORT)"
 # cron (globs data/*.bin at maxdepth 1) and any systemd harvester (writes to
 # data/) cannot touch. Only warn if the user overrode DATA_DIR to a shared dir.
 if [[ "$DATA_DIR" == "$REPO_ROOT/data" || "$DATA_DIR" == "/opt/polymarket/data" ]]; then
-    for svc in polymarket-harvester binance-harvester; do
+    for svc in polymarket-harvester coinbase-harvester; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
             log "WARNING: systemd '$svc' is ACTIVE and writes to $DATA_DIR — it will"
             log "         interleave with / flush away this capture. Stop it first, or"
@@ -131,14 +131,14 @@ start_poly() {
     POLY_PID=$!
     log "polymarket_harvester started (pid $POLY_PID) → polymarket_harvester.log"
 }
-start_bnb() {
-    BINANCE_DATA_DIR="$DATA_DIR" \
-        "$BNB_BIN" >>"$DATA_DIR/binance_harvester.log" 2>&1 &
-    BNB_PID=$!
-    log "binance_harvester started    (pid $BNB_PID) → binance_harvester.log"
+start_cb() {
+    COINBASE_DATA_DIR="$DATA_DIR" \
+        "$CB_BIN" >>"$DATA_DIR/coinbase_harvester.log" 2>&1 &
+    CB_PID=$!
+    log "coinbase_harvester started    (pid $CB_PID) → coinbase_harvester.log"
 }
 start_poly
-start_bnb
+start_cb
 
 # ── Launch one ESPN collector per match ──────────────────────────────────────
 sport_slug="$(echo "$ESPN_SPORT" | tr '/' '_')"
@@ -181,8 +181,8 @@ stopping=false
 shutdown() {
     $stopping && return; stopping=true
     log "stopping — SIGINT to collectors so the harvesters flush + seal journals"
-    kill -INT "$POLY_PID" "$BNB_PID" "${espn_pids[@]}" 2>/dev/null || true
-    wait "$POLY_PID" "$BNB_PID" "${espn_pids[@]}" 2>/dev/null || true
+    kill -INT "$POLY_PID" "$CB_PID" "${espn_pids[@]}" 2>/dev/null || true
+    wait "$POLY_PID" "$CB_PID" "${espn_pids[@]}" 2>/dev/null || true
     decode
     exit 0
 }
@@ -193,11 +193,11 @@ log "capturing. Watch a match:  tail -f $DATA_DIR/espn_${match_events[0]}.log"
 # ── Supervisor loop ──────────────────────────────────────────────────────────
 # Respawn any harvester that dies (segfault, dropped socket) with a short
 # backoff. The session ends ONLY when every match reaches full time, DURATION
-# elapses, or Ctrl-C — never because a harvester crashed. A binance crash in
+# elapses, or Ctrl-C — never because a harvester crashed. A coinbase crash in
 # particular must never take down the match capture (it's only the BTC
 # reference feed).
 poly_restarts=0
-bnb_restarts=0
+cb_restarts=0
 SECONDS=0
 while true; do
     if ! kill -0 "$POLY_PID" 2>/dev/null; then
@@ -205,10 +205,10 @@ while true; do
         log "polymarket_harvester died — restarting (#$poly_restarts; see polymarket_harvester.log)"
         sleep 2; start_poly
     fi
-    if ! kill -0 "$BNB_PID" 2>/dev/null; then
-        bnb_restarts=$((bnb_restarts+1))
-        log "binance_harvester (BTC reference) died — restarting (#$bnb_restarts; non-fatal)"
-        sleep 2; start_bnb
+    if ! kill -0 "$CB_PID" 2>/dev/null; then
+        cb_restarts=$((cb_restarts+1))
+        log "coinbase_harvester (BTC reference) died — restarting (#$cb_restarts; non-fatal)"
+        sleep 2; start_cb
     fi
 
     if [[ -n "$DURATION" ]] && (( SECONDS >= DURATION )); then

@@ -117,9 +117,9 @@ Analysis and charts: [`research/notebooks/event_lag_analysis.ipynb`](../research
 
 ---
 
-## Binance → Polymarket Lag Arb — Inconclusive
+## Coinbase → Polymarket Lag Arb — Inconclusive
 
-**Thesis:** when BTC moves sharply on Binance, Polymarket's BTC binary markets take time
+**Thesis:** when BTC moves sharply on Coinbase, Polymarket's BTC binary markets take time
 to reprice. The stale quote is the edge — no prediction required, only speed.
 
 **Why this thesis is structurally different:** it makes no prediction about direction.
@@ -127,12 +127,12 @@ It only requires that information travels between venues with measurable, exploi
 latency — a physics-constrained structural edge rather than a statistical one.
 
 **Status:** backtesting showed no consistent exploitable lag. The market appears to
-price Binance moves within the same second in the tested data. Whether a co-location
+price Coinbase moves within the same second in the tested data. Whether a co-location
 or execution-speed advantage would change this is untested — the current setup runs
 both feeds on the same AWS instance, so the measurement captures the system's own
 latency floor rather than a true cross-venue gap.
 
-Infrastructure is in place for a cleaner test: `src/binance/`, `research/notebooks/binance_lag_analysis.ipynb`.
+Infrastructure is in place for a cleaner test: `src/coinbase/`, `research/notebooks/coinbase_lag_analysis.ipynb`.
 
 ---
 
@@ -143,7 +143,7 @@ that any signal computable from public data is already in the price. The sports
 efficiency measurement provides concrete evidence: bettors react faster than any
 accessible event detection pipeline.
 
-The structural latency thesis (Binance → Polymarket) remains the most defensible
+The structural latency thesis (Coinbase → Polymarket) remains the most defensible
 hypothesis because it doesn't require prediction — only speed. But it requires either
 a faster reference feed or colocation to test properly.
 
