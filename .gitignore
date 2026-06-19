@@ -35,3 +35,6 @@ CLAUDE.md
 .devcontainer/
 commands.txt
 PLAN.md
+
+# Editor / tooling cache
+.cache/
