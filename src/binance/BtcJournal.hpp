@@ -54,6 +54,12 @@ namespace binance
         {
             rotate_if_needed(tick.timestamp);
 
+            // Defensive: flush() always resets buf_pos_ to 0 (writing or
+            // dropping), so this should never trip — but guarantee we never
+            // index past buf_[] even if an unwritable segment persists.
+            if (buf_pos_ >= BUF_CAP)
+                flush();
+
             buf_[buf_pos_++] = tick;
             ++ticks_written_;
 
@@ -140,8 +146,22 @@ namespace binance
 
         void flush() noexcept
         {
-            if (buf_pos_ == 0 || !file_)
+            if (buf_pos_ == 0)
                 return;
+
+            // If the segment file failed to open (e.g. disk full, or the path
+            // is owned by another user/process), we cannot persist these ticks.
+            // DROP them and reset the buffer — never leave buf_pos_ at/above
+            // BUF_CAP, or the next write() indexes past buf_[] and corrupts
+            // memory (was the cause of the 2026-06-18 binance segfault).
+            if (!file_)
+            {
+                spdlog::warn("[journal] No open segment — dropping {} buffered "
+                             "BtcTick(s) (could not open journal file)",
+                             buf_pos_);
+                buf_pos_ = 0;
+                return;
+            }
 
             std::fwrite(buf_, sizeof(polymarket::core::BtcTick),
                         buf_pos_, file_);
