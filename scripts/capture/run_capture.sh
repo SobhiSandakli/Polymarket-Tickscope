@@ -48,7 +48,9 @@
 # Optional env (defaults shown):
 #   ESPN_SPORT="soccer/fifa.world"   ESPN sport path (same for all matches).
 #   BTC_FILTER="Bitcoin Up or Down"  Polymarket filter for the BTC binary markets.
-#   DATA_DIR="<repo>/data"           Where journals + CSV are written.
+#   CAPTURE_NAME="<label>"           Names the output folder data/captures/<label>/.
+#                                    Defaults to a UTC timestamp. e.g. worldcup_day2.
+#   DATA_DIR="<repo>/data/captures/<name>"  Override the full output path directly.
 #   DURATION=""                      Seconds to run then auto-stop. Empty = until all
 #                                    matches reach full time (or Ctrl-C).
 #   REDISCOVER_MINS=5                Polymarket re-discovery interval. The BTC up/down
@@ -64,7 +66,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # ── Config ───────────────────────────────────────────────────────────────────
 ESPN_SPORT="${ESPN_SPORT:-soccer/fifa.world}"
 BTC_FILTER="${BTC_FILTER:-Bitcoin Up or Down}"
-DATA_DIR="${DATA_DIR:-$REPO_ROOT/data/capture_$(date -u +%Y%m%d_%H%M%S)}"
+DATA_DIR="${DATA_DIR:-$REPO_ROOT/data/captures/${CAPTURE_NAME:-$(date -u +%Y%m%d_%H%M%S)}}"
 DURATION="${DURATION:-}"
 REDISCOVER_MINS="${REDISCOVER_MINS:-5}"
 PYTHON="${PYTHON:-python3}"
