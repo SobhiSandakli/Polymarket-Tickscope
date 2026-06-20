@@ -446,6 +446,85 @@ namespace polymarket::gateway
     }
 
     // ---------------------------------------------------------------------------
+    // append_new_metadata_csv — O(new tokens), no full rewrite (rediscovery path)
+    // ---------------------------------------------------------------------------
+    void append_new_metadata_csv(
+        const std::vector<TokenMeta> &fresh_tokens,
+        const char *path,
+        std::unordered_set<std::string> &known)
+    {
+        // Write a header only if the file is missing or empty.
+        bool need_header = true;
+        if (std::FILE *probe = std::fopen(path, "r"))
+        {
+            need_header = (std::fgetc(probe) == EOF);
+            std::fclose(probe);
+        }
+
+        std::FILE *f = std::fopen(path, "a");
+        if (!f)
+        {
+            spdlog::error("[market-discovery] Cannot open metadata CSV for append: {}", path);
+            return;
+        }
+        if (need_header)
+            std::fprintf(f,
+                         "asset_id,condition_id,outcome,question,end_date,active,taker_fee_bps\n");
+
+        int appended = 0;
+        for (const auto &m : fresh_tokens)
+        {
+            if (!known.insert(m.token_id).second)
+                continue; // already on disk — skip
+            const std::string q = csv_escape_question(m.question);
+            std::fprintf(f, "%s,%s,%s,%s,%s,%d,%d\n",
+                         m.token_id.c_str(), m.condition_id.c_str(), m.outcome.c_str(),
+                         q.c_str(), m.end_date.c_str(), m.active ? 1 : 0, m.taker_fee_bps);
+            ++appended;
+        }
+        std::fclose(f);
+        if (appended)
+            spdlog::info("[market-discovery] Metadata: appended {} new token(s) ({} known total)",
+                         appended, known.size());
+    }
+
+    // ---------------------------------------------------------------------------
+    // prune_metadata_csv — drop rows for markets resolved before the cutoff
+    // ---------------------------------------------------------------------------
+    int prune_metadata_csv(const char *path, const std::string &cutoff_iso_date)
+    {
+        std::vector<TokenMeta> rows = read_csv_tokens(path);
+        if (rows.empty())
+            return 0;
+
+        std::vector<TokenMeta> kept;
+        kept.reserve(rows.size());
+        int dropped = 0;
+        for (auto &m : rows)
+        {
+            // Keep if unresolved (empty end_date) or resolved on/after the cutoff.
+            if (m.end_date.empty() || m.end_date >= cutoff_iso_date)
+                kept.push_back(std::move(m));
+            else
+                ++dropped;
+        }
+        if (dropped == 0)
+            return 0;
+
+        const std::string tmp_path = std::string(path) + ".tmp";
+        write_metadata_csv(kept, tmp_path.c_str());
+        if (std::rename(tmp_path.c_str(), path) != 0)
+        {
+            spdlog::error("[market-discovery] metadata prune rename failed: {}",
+                          std::strerror(errno));
+            return 0;
+        }
+        spdlog::info("[market-discovery] Metadata pruned: dropped {} row(s) resolved before {}",
+                     dropped, cutoff_iso_date);
+        return dropped;
+    }
+
+    // ---------------------------------------------------------------------------
     // filter_by_question
     // ---------------------------------------------------------------------------
     [[nodiscard]] std::vector<TokenMeta> filter_by_question(

@@ -35,6 +35,7 @@ CLAUDE.md
 .devcontainer/
 commands.txt
 PLAN.md
+ARCHITECTURE_WALKTHROUGH.md
 
 # Editor / tooling cache
 .cache/

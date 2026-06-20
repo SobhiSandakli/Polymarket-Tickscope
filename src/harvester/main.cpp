@@ -11,10 +11,15 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <cctype>       // std::isdigit
 #include <chrono>
 #include <csignal>
+#include <cstdio>       // std::snprintf
 #include <cstdlib>
 #include <cstring>      // std::strcmp
+#include <ctime>        // std::time, gmtime_r
+#include <filesystem>   // retention: iterate + delete old capture files
+#include <string>
 #include <thread>
 #include <unordered_set>
 
@@ -73,11 +78,84 @@ static void init_logger()
 }
 
 // ---------------------------------------------------------------------------
+// Retention helpers (used by the re-discovery thread when
+// POLYMARKET_RETENTION_DAYS is set). All UTC, all based on the date embedded in
+// the capture filename — never mtime — so retention tracks DATA age, not when a
+// file happened to be decoded.
+// ---------------------------------------------------------------------------
+static std::string iso_date_days_ago(int days) // "YYYY-MM-DD"
+{
+    std::time_t t = std::time(nullptr) - static_cast<std::time_t>(days) * 86400;
+    std::tm tm{};
+    gmtime_r(&t, &tm);
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+    return buf;
+}
+
+static int yyyymmdd_days_ago(int days)
+{
+    std::time_t t = std::time(nullptr) - static_cast<std::time_t>(days) * 86400;
+    std::tm tm{};
+    gmtime_r(&t, &tm);
+    return (tm.tm_year + 1900) * 10000 + (tm.tm_mon + 1) * 100 + tm.tm_mday;
+}
+
+// Extract YYYYMMDD from "polymarket_20260619_1100.bin" / "btc_…" → 20260619; -1 if none.
+static int file_date_yyyymmdd(const std::string &name)
+{
+    const auto us = name.find('_');
+    if (us == std::string::npos || us + 9 > name.size())
+        return -1;
+    for (std::size_t i = 1; i <= 8; ++i)
+        if (!std::isdigit(static_cast<unsigned char>(name[us + i])))
+            return -1;
+    return std::atoi(name.substr(us + 1, 8).c_str());
+}
+
+// Delete polymarket_*/btc_* .bin and .parquet whose filename date is older than
+// retention_days. Today's files (date > cutoff) are never touched, so the
+// currently-open journal is always safe.
+static void prune_old_data_files(const std::string &data_dir, int retention_days)
+{
+    namespace fs = std::filesystem;
+    const int cutoff = yyyymmdd_days_ago(retention_days);
+    int removed = 0;
+    std::error_code ec;
+    for (auto &entry : fs::directory_iterator(data_dir, ec))
+    {
+        if (ec) break;
+        if (!entry.is_regular_file())
+            continue;
+        const std::string name = entry.path().filename().string();
+        const std::string ext = entry.path().extension().string();
+        const bool is_capture =
+            (name.rfind("polymarket_", 0) == 0 || name.rfind("btc_", 0) == 0) &&
+            (ext == ".bin" || ext == ".parquet");
+        if (!is_capture)
+            continue;
+        const int d = file_date_yyyymmdd(name);
+        if (d > 0 && d < cutoff)
+        {
+            std::error_code rm;
+            fs::remove(entry.path(), rm);
+            if (!rm) ++removed;
+        }
+    }
+    if (removed)
+        spdlog::info("[retention] removed {} capture file(s) older than {} day(s)",
+                     removed, retention_days);
+}
+
+// ---------------------------------------------------------------------------
 // rediscover_loop
 //
-// Cold-path thread: wakes every interval_hours, diffs the live market list
+// Cold-path thread: wakes every interval_mins, diffs the live market list
 // against known_ids, sends incremental WS subscriptions for new tokens, and
-// merges the metadata CSV.  Sleeps in 30-second chunks so Ctrl-C exits within
+// APPENDS new rows to the metadata CSV (O(new), not a full rewrite). When
+// retention is enabled it also prunes old capture files + resolved metadata
+// rows, throttled to ~hourly. Sleeps in 30-second chunks so Ctrl-C exits within
 // 30 s even when mid-sleep.
 // ---------------------------------------------------------------------------
 static void rediscover_loop(
@@ -85,11 +163,19 @@ static void rediscover_loop(
     polymarket::gateway::WebSocketClient &wsc,
     std::string csv_path,
     std::unordered_set<std::string> known_ids,
+    std::unordered_set<std::string> metadata_known,
     int interval_mins,
-    std::string filter_str)
+    std::string filter_str,
+    int retention_days,
+    std::string data_dir)
 {
     const int total_seconds = interval_mins * 60;
     constexpr int CHUNK_SECONDS = 30;
+
+    // Retention is throttled to ~hourly (the prune is O(file); the discovery
+    // append above is O(new) and runs every cycle). Start one hour back so the
+    // first qualifying cycle runs it.
+    auto last_retention = std::chrono::steady_clock::now() - std::chrono::hours(1);
 
     while (running.load(std::memory_order_relaxed))
     {
@@ -114,8 +200,8 @@ static void rediscover_loop(
             continue;
         }
 
-        // Always merge full CSV before filtering — same principle as boot sequence.
-        polymarket::gateway::merge_and_write_metadata_csv(fresh, csv_path.c_str());
+        // Append ONLY genuinely-new tokens — O(new), no full-file rewrite.
+        polymarket::gateway::append_new_metadata_csv(fresh, csv_path.c_str(), metadata_known);
 
         // Apply filter for subscription diffing only.
         const auto &subscribe_fresh = filter_str.empty()
@@ -139,6 +225,19 @@ static void rediscover_loop(
 
         spdlog::info("[rediscover] Cycle complete — {} new token(s), {} total active",
                      new_ids.size(), fresh.size());
+
+        // ── Retention (opt-in, ~hourly) ──────────────────────────────────
+        if (retention_days > 0)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last_retention >= std::chrono::hours(1))
+            {
+                last_retention = now;
+                prune_old_data_files(data_dir, retention_days);
+                polymarket::gateway::prune_metadata_csv(
+                    csv_path.c_str(), iso_date_days_ago(retention_days));
+            }
+        }
     }
 
     spdlog::info("[rediscover] Re-discovery thread exiting.");
@@ -219,6 +318,13 @@ int main(int argc, char *argv[])
         market_meta,
         csv_path.c_str());
 
+    // Seed the metadata dedup set from the full CSV (active + preserved-inactive)
+    // so re-discovery APPENDS only genuinely-new tokens instead of rewriting the
+    // whole file every cycle. One read at boot; cheap thereafter.
+    std::unordered_set<std::string> metadata_known;
+    for (const auto &m : polymarket::gateway::read_csv_tokens(csv_path.c_str()))
+        metadata_known.insert(m.token_id);
+
     // ── Apply subscription filter ─────────────────────────────────────────
     // subscribe_meta is the filtered view used for WS subscriptions only.
     // market_meta (full set) is preserved for the CSV above.
@@ -282,14 +388,30 @@ int main(int argc, char *argv[])
         if (int v = std::atoi(e); v > 0) rediscover_mins = v;
 
     spdlog::info("Re-discovery thread: interval = {} minute(s)", rediscover_mins);
+
+    // ── Data retention (opt-in) ───────────────────────────────────────────
+    // POLYMARKET_RETENTION_DAYS unset/0 = unlimited (default, non-breaking).
+    // When set, the re-discovery thread prunes capture files + resolved metadata
+    // older than N days, ~hourly. The user owns how much history is kept.
+    int retention_days = 0;
+    if (const char *e = std::getenv("POLYMARKET_RETENTION_DAYS"))
+        if (int v = std::atoi(e); v > 0) retention_days = v;
+    if (retention_days > 0)
+        spdlog::info("Retention: keeping {} day(s) of journals/parquet/metadata", retention_days);
+    else
+        spdlog::info("Retention: unlimited (set POLYMARKET_RETENTION_DAYS to prune)");
+
     g_rediscover_running.store(true, std::memory_order_relaxed);
     std::thread rediscover_thread(rediscover_loop,
         std::ref(g_rediscover_running),
         std::ref(wsc),
-        csv_path,              // copied by value into the thread
-        std::move(known_ids),  // moved — main no longer needs it
+        csv_path,                   // copied by value into the thread
+        std::move(known_ids),       // moved — main no longer needs it
+        std::move(metadata_known),  // moved — metadata dedup set
         rediscover_mins,
-        filter_str);           // copied by value into the thread
+        filter_str,                 // copied by value into the thread
+        retention_days,
+        data_dir);                  // copied by value for retention pruning
 
     spdlog::info("Connecting to wss://ws-subscriptions-clob.polymarket.com/ws/market ...");
     spdlog::info("Press Ctrl-C to stop.");

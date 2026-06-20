@@ -31,8 +31,12 @@ cmake --build build --target polymarket_harvester coinbase_harvester -j"$(nproc)
 ### Configure + run both harvesters via systemd
 
 ```bash
-# Market filter — BTC 5-min up/down markets
-echo 'POLYMARKET_MARKET_FILTER="Bitcoin Up or Down"' | sudo tee /etc/default/polymarket-harvester
+# Market filter — BTC 5-min up/down markets.
+# Optionally cap how much history is kept (default = unlimited); the harvester
+# self-prunes old journals/parquet/metadata in-process, ~hourly — no cron needed.
+# For the cloud archive, prefer an S3 lifecycle rule to expire shipped .parquet.
+printf 'POLYMARKET_MARKET_FILTER="Bitcoin Up or Down"\nPOLYMARKET_RETENTION_DAYS=30\n' \
+  | sudo tee /etc/default/polymarket-harvester
 
 sudo cp deploy/harvester/polymarket-harvester.service /etc/systemd/system/
 sudo cp deploy/coinbase/coinbase-harvester.service /etc/systemd/system/

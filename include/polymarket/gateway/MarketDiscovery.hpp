@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace polymarket::gateway
@@ -84,6 +85,37 @@ namespace polymarket::gateway
     void merge_and_write_metadata_csv(
         const std::vector<TokenMeta> &fresh_tokens,
         const char *path);
+
+    // ---------------------------------------------------------------------------
+    // append_new_metadata_csv
+    //
+    // REDISCOVERY HOT-PATH alternative to merge_and_write_metadata_csv.
+    //
+    // Appends ONLY tokens whose token_id is not already in `known` (seeded once at
+    // boot, then kept current by this function). Per-cycle cost is O(new tokens),
+    // not O(all history) — no full rewrite. Creates the file with a header if it
+    // does not exist.
+    //
+    // Trade-off vs. merge: the `active` column reflects active-at-first-discovery
+    // and is not flipped to 0 on later delisting (a full merge at the next boot
+    // repairs it). Decoding only needs token_id → question/outcome, so this is
+    // sufficient; "active now?" is derivable from end_date.
+    // ---------------------------------------------------------------------------
+    void append_new_metadata_csv(
+        const std::vector<TokenMeta> &fresh_tokens,
+        const char *path,
+        std::unordered_set<std::string> &known);
+
+    // ---------------------------------------------------------------------------
+    // prune_metadata_csv
+    //
+    // RETENTION ONLY. Rewrites the CSV keeping rows whose market has not resolved
+    // before cutoff_iso_date (kept if end_date empty or end_date >= cutoff, ISO
+    // lexicographic compare). A market resolved before the cutoff has no retained
+    // ticks referencing it, so dropping its metadata never breaks decoding.
+    // Returns the number of rows dropped.
+    // ---------------------------------------------------------------------------
+    int prune_metadata_csv(const char *path, const std::string &cutoff_iso_date);
 
     // ---------------------------------------------------------------------------
     // filter_by_question

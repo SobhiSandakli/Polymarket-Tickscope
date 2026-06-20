@@ -48,6 +48,15 @@ python3 scripts/harvester/log_to_parquet.py data/polymarket_*.bin
 
 Use a **focused filter** — it's the practical mode. Subscribing to the entire firehose produces a subscription message large enough that the server drops the connection (see ADR-0003), so you target the markets you actually want. Docker: `POLYMARKET_MARKET_FILTER="Bitcoin Up or Down" docker compose up harvester`.
 
+**Capture knobs (env vars):**
+
+| Env var | Default | Effect |
+|---|---|---|
+| `POLYMARKET_MARKET_FILTER` | _(unset → firehose, gets dropped)_ | Comma-separated OR substrings; the markets to subscribe to. |
+| `POLYMARKET_DATA_DIR` | `./data` | Where journals + `market_metadata.csv` are written. |
+| `POLYMARKET_REDISCOVER_MINS` | `15` | How often to re-scan for new/rolled-over markets. |
+| `POLYMARKET_RETENTION_DAYS` | _(unset = **unlimited**)_ | **You own your storage.** Set to `7`/`30`/… and the harvester self-prunes `.bin`/`.parquet` and resolved metadata older than N days (≈hourly, in-process — no scripts, no cron). Unset keeps everything (default). For a cloud archive, prefer an **S3 lifecycle rule** to expire shipped `.parquet`. |
+
 Capturing your own campaigns (joint match + BTC sessions, AWS deployment) is documented in [`docs/CAPTURE_RUNBOOK.md`](docs/CAPTURE_RUNBOOK.md), with a one-command orchestrator at [`scripts/capture/run_capture.sh`](scripts/capture/run_capture.sh).
 
 ---
