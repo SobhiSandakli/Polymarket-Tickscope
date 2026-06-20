@@ -78,40 +78,39 @@ fee model.
 enough lag to trade — get the event data first, buy the updated probability before the
 market catches up.
 
-**Live measurement (2026 Stanley Cup Finals, Game 4, June 7 2026):**
+**Live measurement (2026 World Cup, 19 June 2026 — four matches):**
 
-Both the Polymarket harvester (12 tokens, "Hurricanes vs. Golden Knights" filter) and an
-ESPN NHL score collector ran simultaneously. Two goals were scored during the capture window.
+The Polymarket harvester (subscribed to all markets for four matches via the OR filter)
+ran alongside one ESPN soccer collector per match. Seven goals were scored. For each
+goal, the most goal-sensitive market with a real signal (the Total-Goals O/U line the
+goal crosses, or the match-draw market) was measured: when did its mid reprice versus
+when did ESPN's API report the goal? Both share the same epoch-ms host clock.
 
-| Event | ESPN detection ts | First Poly tick after ESPN | Lag |
-|---|---|---|---|
-| VGK 1–0 (Goal 1) | 1780796579983 ms | 1780796580304 ms | **+321ms** |
-| VGK 2–0 (Goal 2) | 1780796650971 ms | 1780796650971+199 ms | **+199ms** |
+| Match | Goal | Market | Baseline → post | Lag (Poly − ESPN) |
+|---|---|---|---|---|
+| USA–Australia | 1–0 (11') | O/U 0.5 | 0.93 → 1.00 | **−62s** |
+| Türkiye–Paraguay | 0–1 (2') | O/U 0.5 | 0.92 → 1.00 | **−54s** |
+| Brazil–Haiti | 2–0 (37') | O/U 1.5 | 0.96 → 1.00 | **−73s** |
+| Scotland–Morocco | 0–1 (2') | draw | 0.26 → 0.16 | **−50s** |
 
-The raw lag numbers look small — but they're misleading. The Polymarket WIN_YES token
-first moved **26 seconds before ESPN detected Goal 1** (mid 0.040 → 0.085, fully
-repriced to 0.250 by detection time) and **33 seconds before Goal 2** (0.235 → 0.295).
-By the time ESPN updated, the market had already finished repricing both times.
+Median lead **~58s** (range 50–73s) on the four goals with a clean, large-enough market
+move. The other three goals were excluded as low-signal: all came in the Brazil blowout,
+where the favorite's markets were already pinned near certainty *before* the goal (jump
+< 0.04), so there was nothing to measure.
 
-```
-Timeline (Goal 1):
-
-  T - 26s   Polymarket WIN_YES first price move: 0.040 → 0.085
-  T - 23s   Large reprice: 0.085 → 0.180 → 0.260
-  T  0s     ESPN API detects score_change (HTTP poll, 1s interval)
-  T +0.3s   First Polymarket tick observed after ESPN timestamp (already at 0.250)
-```
-
-**What this means:** bettors watching a live broadcast reprice Polymarket faster than any
-HTTP polling pipeline can detect the event. Every tested source (ESPN, NHL Stats API,
-Sportradar) has 15–30s delays. The market is not the slow participant — the data
-pipelines are.
+The negative lag does not mean the market is clairvoyant — it means **ESPN's public
+scoreboard API lags the live event by ~a minute**, while Polymarket (driven by bettors
+watching the live broadcast) moves at the true goal moment. Two independent markets
+(Total-Goals and draw) repriced at the same instant and then sat flat through ESPN's
+later timestamp — a clean step, not drift.
 
 **Conclusion:** in-game sports latency arb is not viable with publicly accessible event
-feeds. A sub-second proprietary data source (official league feed or on-venue data) would
-be required, and those are enterprise-licensed.
+feeds. This extends the earlier hockey measurement (ESPN's NHL API lagged ~26–33s) to
+soccer, where the World Cup feed lags even more. To beat the market you would need an
+event source faster than the fastest humans watching live TV — i.e. a sub-second
+proprietary/official feed, which is enterprise-licensed.
 
-Analysis and charts: [`research/notebooks/event_lag_analysis.ipynb`](../research/notebooks/event_lag_analysis.ipynb)
+Analysis and chart: [`research/scripts/worldcup_lag_analysis.py`](../research/scripts/worldcup_lag_analysis.py)
 — runs end-to-end from a fresh clone against the committed sample in
 [`data/samples/sports/`](../data/samples/).
 

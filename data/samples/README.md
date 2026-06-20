@@ -4,20 +4,21 @@ Small curated captures — one per market class — so every analysis notebook r
 end-to-end from a fresh clone, no capture required. Live harvester output lands in
 `data/` (gitignored); only this directory is committed.
 
-## `sports/` — 2026 Stanley Cup Finals, Game 4 (VGK @ CAR, June 7 2026)
+## `sports/` — 2026 World Cup, four matches (19 June 2026)
+
+USA–Australia, Scotland–Morocco, Brazil–Haiti, Türkiye–Paraguay — captured in one
+`run_capture.sh` session. Trimmed to ±5 min windows around the seven goals so the
+sample stays small.
 
 | File | Contents |
 |---|---|
-| `polymarket_20260607_0130.parquet` | Polymarket CLOB ticks, 12 tokens, "Hurricanes vs. Golden Knights" filter |
-| `polymarket_20260607_0145.parquet` | Continuation of the same capture (15-min journal rotation) |
-| `espn_nhl_401874173.csv` | ESPN score events, 1-second poll, same system clock as the ticks |
+| `polymarket_worldcup_20260619.parquet` | Polymarket CLOB ticks for all four matches' markets, goal windows only |
+| `market_metadata_worldcup.csv` | Token → question/outcome metadata (trimmed to the sample's tokens) |
+| `espn_soccer_fifa.world_7604{42,43,44,45}.csv` | ESPN score events per match, 1-second poll, same system clock as the ticks |
 
-~75 minutes of game time covering two VGK goals. Powers
-[`event_lag_analysis.ipynb`](../../research/notebooks/event_lag_analysis.ipynb) — the
-measurement showing Polymarket repriced 23–26s *before* ESPN detected each goal.
-
-A 2026 World Cup capture (Polymarket match markets + ESPN soccer feed) is planned to
-extend this beyond a single game — see [`docs/CAPTURE_RUNBOOK.md`](../../docs/CAPTURE_RUNBOOK.md).
+Powers [`research/scripts/worldcup_lag_analysis.py`](../../research/scripts/worldcup_lag_analysis.py)
+— the measurement showing Polymarket repriced each goal a median **~58s before**
+ESPN's API reported it (range 50–73s, on the four goals with a clean market signal).
 
 ## `crypto/` — BTC 5-minute up/down markets + Coinbase reference feed
 

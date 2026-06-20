@@ -4,11 +4,11 @@
 
 Low-latency C++20 market-data infrastructure and a Python research layer, built to answer one question: **how efficient are prediction markets?**
 
-The hypothesis was that Polymarket reprices slower than the underlying information arrives — across crypto (Coinbase → BTC binary markets) and live sports (score feeds → match markets) — and that the lag is tradable. Six strategies were built and tested against live captured data. **Every one was killed**, including one that looked profitable until an out-of-sample test with locked parameters reversed it. The market priced everything reachable from public data before this pipeline could: in the cleanest measurement, Polymarket fully repriced a Stanley Cup goal **26–33 seconds before ESPN's API detected it**.
+The hypothesis was that Polymarket reprices slower than the underlying information arrives — across crypto (Coinbase → BTC binary markets) and live sports (score feeds → match markets) — and that the lag is tradable. Six strategies were built and tested against live captured data. **Every one was killed**, including one that looked profitable until an out-of-sample test with locked parameters reversed it. The market priced everything reachable from public data before this pipeline could: across four 2026 World Cup matches, Polymarket repriced each goal a median **~58 seconds before ESPN's API reported it** (range 50–73s).
 
-![Polymarket reprice vs ESPN goal detection](research/notebooks/lag_chart_stanley_cup_g4.png)
+![Polymarket reprice vs ESPN goal detection](research/notebooks/lag_chart_worldcup_2026.png)
 
-*Polymarket mid-price around two goals (2026 Stanley Cup Finals, Game 4). The red line is when ESPN's API detected the goal — the market had already finished repricing. Reproducible from a fresh clone: [`event_lag_analysis.ipynb`](research/notebooks/event_lag_analysis.ipynb).*
+*Polymarket's market-implied probability around four World Cup goals (19 Jun 2026). The red line is when ESPN's API detected each goal; the green line is when Polymarket had already repriced — ~50–73s earlier. Reproducible from a fresh clone: [`research/scripts/worldcup_lag_analysis.py`](research/scripts/worldcup_lag_analysis.py).*
 
 ---
 
@@ -67,9 +67,9 @@ python3 -m venv .venv && .venv/bin/pip install -r research/requirements.txt
 .venv/bin/jupyter lab research/notebooks/
 ```
 
-| Notebook | Dataset | Runs from clone? |
+| Analysis | Dataset | Runs from clone? |
 |---|---|---|
-| [`event_lag_analysis.ipynb`](research/notebooks/event_lag_analysis.ipynb) — sports lag measurement | `data/samples/sports/` (Stanley Cup G4) | ✅ |
+| [`worldcup_lag_analysis.py`](research/scripts/worldcup_lag_analysis.py) — sports lag measurement | `data/samples/sports/` (4 World Cup matches) | ✅ |
 | [`oos_validation.ipynb`](research/notebooks/oos_validation.ipynb) — the locked-parameter test that killed ConvergenceNo | executed outputs committed | results visible on GitHub |
 | [`coinbase_lag_analysis.ipynb`](research/notebooks/coinbase_lag_analysis.ipynb) — BTC cross-venue lag | `data/samples/crypto/` (capture in progress) | soon |
 | [`run_backtest.ipynb`](research/notebooks/run_backtest.ipynb) / [`run_optimizer.ipynb`](research/notebooks/run_optimizer.ipynb) | full dataset (not committed) | outputs committed |
@@ -89,7 +89,7 @@ Six strategies tested against a fill-simulated backtest with Polymarket's full d
 | **MarketMaking** | Ask fills 11.75× more frequent than bid | Adverse selection: in a binary market, whoever lifts your offer knows something. |
 | **ArbYesNo** | Zero opportunities in 179M ticks | YES+NO complement enforced tighter than round-trip fees. |
 | **Coinbase lag arb** | No exploitable lag at same-host measurement floor | Market prices Coinbase moves within the same second. Colocation-scale untested. |
-| **Sports lag arb** | Market leads every accessible feed by 15–30s | Measured live during the Stanley Cup Finals (chart above). |
+| **Sports lag arb** | Market leads ESPN's API by ~50–73s | Measured live across four 2026 World Cup matches (chart above). |
 
 **The honest conclusion:** at every timescale and information set accessible to a non-colocated participant, Polymarket was efficient — any signal computable from public data was already in the price, and the fee structure widens the no-arbitrage band beyond every deviation found. What remains untested is the sub-second regime, which requires colocation or a faster reference feed. The infrastructure to run that test is this repo.
 
