@@ -37,12 +37,20 @@ up — and **operator-controlled** (you own your storage).
   decoding only needs `token_id → question/outcome`, so this is sufficient.
 - **`POLYMARKET_RETENTION_DAYS` env var** (unset / `0` = **unlimited**, the prior behavior,
   non-breaking). When set, the re-discovery thread, throttled to **~hourly**:
-  - deletes `polymarket_*`/`btc_*` `.bin` and `.parquet` whose **filename date** is older
-    than N days (filename date = data age; never mtime, which would reflect decode time);
+  - deletes **every file** in the data dir older than N days by **last-modified time**
+    (`prune_old_data_files`). This is deliberately *generic* — it keys on mtime, not on any
+    per-stream naming convention — so a Polymarket journal, a Coinbase journal, an ESPN CSV,
+    or **any feed a user adds later** is covered by the same one knob, with no code change
+    and no inconsistency between stream types. `directory_iterator` is non-recursive and
+    only regular files are touched, so committed subdirs (`data/samples/`) are never
+    entered. The live metadata dictionary is explicitly skipped (it's pruned by row, below).
   - prunes metadata rows for markets **resolved before** the cutoff
     (`prune_metadata_csv`: keep if `end_date` empty or `end_date >= cutoff`). Such markets
-    have no retained ticks referencing them, so this is decode-safe.
-  - Today's files (date > cutoff) are never touched, so the open journal is always safe.
+    have no retained ticks referencing them, so this is decode-safe. (Metadata can't be
+    age-pruned as a file — it's appended to continuously — hence the per-row rule.)
+  - The currently-open journal is being written, so its mtime is fresh and it is never
+    deleted. Trade-off accepted: a journal decoded to Parquet much later is aged by decode
+    time, not capture time — fine for continuous capture, where files are written live.
 - **Cloud archive retention is delegated to the platform**: `.parquet` shipped to S3 is
   expired with an **S3 lifecycle rule** (native object TTL), not application code.
 

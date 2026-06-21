@@ -94,49 +94,35 @@ static std::string iso_date_days_ago(int days) // "YYYY-MM-DD"
     return buf;
 }
 
-static int yyyymmdd_days_ago(int days)
-{
-    std::time_t t = std::time(nullptr) - static_cast<std::time_t>(days) * 86400;
-    std::tm tm{};
-    gmtime_r(&t, &tm);
-    return (tm.tm_year + 1900) * 10000 + (tm.tm_mon + 1) * 100 + tm.tm_mday;
-}
-
-// Extract YYYYMMDD from "polymarket_20260619_1100.bin" / "btc_…" → 20260619; -1 if none.
-static int file_date_yyyymmdd(const std::string &name)
-{
-    const auto us = name.find('_');
-    if (us == std::string::npos || us + 9 > name.size())
-        return -1;
-    for (std::size_t i = 1; i <= 8; ++i)
-        if (!std::isdigit(static_cast<unsigned char>(name[us + i])))
-            return -1;
-    return std::atoi(name.substr(us + 1, 8).c_str());
-}
-
-// Delete polymarket_*/btc_* .bin and .parquet whose filename date is older than
-// retention_days. Today's files (date > cutoff) are never touched, so the
-// currently-open journal is always safe.
+// Delete every file in the data dir older than retention_days by last-modified
+// time. Deliberately GENERIC — it keys on mtime, not on any per-stream naming
+// convention — so any feed a user adds (its files just land in the same data dir)
+// is covered by the one knob, with no code change and no inconsistency between
+// stream types. directory_iterator is non-recursive and we only touch regular
+// files, so committed subdirs like data/samples/ are never entered. The metadata
+// dictionary is a single live-appended file pruned by ROW (end_date), not by file
+// age, so it is explicitly skipped here.
 static void prune_old_data_files(const std::string &data_dir, int retention_days)
 {
     namespace fs = std::filesystem;
-    const int cutoff = yyyymmdd_days_ago(retention_days);
+    const auto cutoff = fs::file_time_type::clock::now() -
+                        std::chrono::hours(24 * retention_days);
     int removed = 0;
     std::error_code ec;
     for (auto &entry : fs::directory_iterator(data_dir, ec))
     {
         if (ec) break;
         if (!entry.is_regular_file())
-            continue;
+            continue; // never recurse into subdirs (committed data/samples/ is safe)
+
         const std::string name = entry.path().filename().string();
-        const std::string ext = entry.path().extension().string();
-        const bool is_capture =
-            (name.rfind("polymarket_", 0) == 0 || name.rfind("btc_", 0) == 0) &&
-            (ext == ".bin" || ext == ".parquet");
-        if (!is_capture)
-            continue;
-        const int d = file_date_yyyymmdd(name);
-        if (d > 0 && d < cutoff)
+        if (name == "market_metadata.csv" || name == "market_metadata.csv.tmp")
+            continue; // pruned by row (end_date), not by file age
+
+        std::error_code tec;
+        const auto mtime = fs::last_write_time(entry.path(), tec);
+        if (tec) continue;
+        if (mtime < cutoff)
         {
             std::error_code rm;
             fs::remove(entry.path(), rm);
@@ -144,7 +130,7 @@ static void prune_old_data_files(const std::string &data_dir, int retention_days
         }
     }
     if (removed)
-        spdlog::info("[retention] removed {} capture file(s) older than {} day(s)",
+        spdlog::info("[retention] removed {} file(s) older than {} day(s)",
                      removed, retention_days);
 }
 
