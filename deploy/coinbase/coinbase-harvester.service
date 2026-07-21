@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=ubuntu
 Group=ubuntu
 WorkingDirectory=/opt/polymarket
 EnvironmentFile=-/etc/default/coinbase-harvester

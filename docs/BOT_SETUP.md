@@ -25,8 +25,8 @@ cmake --build build --target polymarket_bot -j"$(nproc)"
 ## 2) Install systemd service
 
 ```bash
-sudo cp deploy/systemd/polymarket-bot.service /etc/systemd/system/
-sudo cp deploy/systemd/polymarket-bot.env.example /etc/default/polymarket-bot
+sudo cp deploy/bot/polymarket-bot.service /etc/systemd/system/
+sudo cp deploy/bot/polymarket-bot.env.example /etc/default/polymarket-bot
 sudo nano /etc/default/polymarket-bot
 ```
 
@@ -58,7 +58,7 @@ Test once manually:
 export BOT_LOG_PATH=/opt/polymarket/paper_trades.log
 export BOT_STATUS_LOG_PATH=/opt/polymarket/paper_status.log
 export BOT_ARCHIVE_DIR=/opt/polymarket/bot_archive
-export BOT_S3_URI=s3://polymarket-data-sobhi/polymarket-bot
+export BOT_S3_URI=s3://YOUR_BUCKET/polymarket-bot
 /opt/polymarket/scripts/bot_daily_s3.sh
 ```
 
@@ -71,8 +71,8 @@ Add cron (runs 00:10 UTC daily, uploads yesterday):
 ## 4) Download daily file for analysis
 
 ```bash
-aws s3 cp s3://polymarket-data-sobhi/polymarket-bot/daily/date=YYYY-MM-DD/bot_trades_YYYY-MM-DD.log.gz .
-aws s3 cp s3://polymarket-data-sobhi/polymarket-bot/daily/date=YYYY-MM-DD/bot_status_YYYY-MM-DD.log.gz .
+aws s3 cp s3://YOUR_BUCKET/polymarket-bot/daily/date=YYYY-MM-DD/bot_trades_YYYY-MM-DD.log.gz .
+aws s3 cp s3://YOUR_BUCKET/polymarket-bot/daily/date=YYYY-MM-DD/bot_status_YYYY-MM-DD.log.gz .
 gunzip -f bot_trades_YYYY-MM-DD.log.gz
 gunzip -f bot_status_YYYY-MM-DD.log.gz
 ```

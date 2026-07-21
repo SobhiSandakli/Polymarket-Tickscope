@@ -4,6 +4,8 @@
 #include <polymarket/memory/RingBuffer.hpp>
 
 #include <atomic>
+#include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -75,14 +77,18 @@ namespace polymarket::gateway
 
     private:
         struct Impl; // Defined in WebSocketClient.cpp — hides IXWebSocket headers.
-        Impl *impl_;
+        std::unique_ptr<Impl> impl_;
 
         memory::RingBuffer<core::Tick, 65536> &ring_;
         std::string url_;
         std::string subscription_json_; // built at construction
         int core_id_;
-        std::atomic<bool> running_{false};
+        // Defaults to true so a stop() delivered (e.g. from a signal handler)
+        // BEFORE run() starts is not erased. run() must not re-assert this.
+        std::atomic<bool> running_{true};
         std::atomic<bool> connected_{false};      // set on Open, cleared on Close
+        std::atomic<uint64_t> oversized_drops_{0}; // count of dropped >cap messages
+        std::atomic<int64_t> last_msg_ms_{0};      // epoch-ms of last inbound message
         std::mutex subscription_mutex_;            // guards full_subscription_json_ (cold path only)
         std::string full_subscription_json_;       // startup + all rediscovered tokens
     };

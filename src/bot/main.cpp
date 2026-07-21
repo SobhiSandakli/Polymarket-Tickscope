@@ -78,10 +78,8 @@ struct CliArgs
     double exit_thresh = bot::EXIT_THRESHOLD;
     std::string filter = bot::DEFAULT_FILTER;
     bool live_mode = false;
-    std::string priv_key;
-    std::string api_key;
-    std::string api_secret;
-    std::string passphrase;
+    // Live-mode secrets are NOT parsed from argv — see main(), they come from
+    // the environment (BOT_PRIV_KEY / BOT_API_KEY / BOT_API_SECRET / BOT_PASSPHRASE).
 };
 
 static void print_usage(const char *prog)
@@ -92,11 +90,14 @@ static void print_usage(const char *prog)
                  "  --threshold <float>  YES_mid entry threshold (default: %.2f)\n"
                  "  --exit     <float>   NO_mid  exit  threshold (default: %.2f)\n"
                  "  --filter   <string>  Market question filter  (default: \"up or down\")\n"
-                 "  --live               Use LiveGateway (stub — requires --key etc.)\n"
-                 "  --key      <0x...>   EVM private key (live mode)\n"
-                 "  --api-key  <str>     CLOB API key (live mode)\n"
-                 "  --api-secret <str>   CLOB API secret (live mode)\n"
-                 "  --passphrase <str>   CLOB API passphrase (live mode)\n",
+                 "  --live               Use LiveGateway (reads secrets from the environment)\n"
+                 "\n"
+                 "Live-mode secrets are read from environment variables — never the\n"
+                 "command line, which is visible via ps and saved in shell history:\n"
+                 "  BOT_PRIV_KEY    EVM private key\n"
+                 "  BOT_API_KEY     CLOB API key\n"
+                 "  BOT_API_SECRET  CLOB API secret\n"
+                 "  BOT_PASSPHRASE  CLOB API passphrase\n",
                  prog, bot::THRESHOLD, bot::EXIT_THRESHOLD);
 }
 
@@ -128,14 +129,6 @@ static CliArgs parse_args(int argc, char **argv)
             args.filter = next(a);
         else if (std::strcmp(a, "--live") == 0)
             args.live_mode = true;
-        else if (std::strcmp(a, "--key") == 0)
-            args.priv_key = next(a);
-        else if (std::strcmp(a, "--api-key") == 0)
-            args.api_key = next(a);
-        else if (std::strcmp(a, "--api-secret") == 0)
-            args.api_secret = next(a);
-        else if (std::strcmp(a, "--passphrase") == 0)
-            args.passphrase = next(a);
         else if (std::strcmp(a, "--help") == 0 || std::strcmp(a, "-h") == 0)
         {
             print_usage(argv[0]);
@@ -207,10 +200,30 @@ int main(int argc, char **argv)
     std::unique_ptr<bot::OrderGateway> gateway;
     if (args.live_mode)
     {
-        spdlog::warn("LiveGateway selected — real orders WILL be sent (stub)");
+        // Secrets come from the environment, never argv (which is world-readable
+        // via ps and saved in shell history). See BOT_* vars in --help.
+        auto env_or_empty = [](const char *name) -> std::string
+        {
+            const char *v = std::getenv(name);
+            return v ? std::string(v) : std::string();
+        };
+        const std::string priv_key = env_or_empty("BOT_PRIV_KEY");
+        const std::string api_key = env_or_empty("BOT_API_KEY");
+        const std::string api_secret = env_or_empty("BOT_API_SECRET");
+        const std::string passphrase = env_or_empty("BOT_PASSPHRASE");
+        if (priv_key.empty() || api_key.empty() ||
+            api_secret.empty() || passphrase.empty())
+        {
+            spdlog::error("--live requires BOT_PRIV_KEY, BOT_API_KEY, BOT_API_SECRET "
+                          "and BOT_PASSPHRASE to be set in the environment");
+            return 1;
+        }
+        // NOTE: LiveGateway is currently a STUB — buy/sell log a warning and do
+        // NOT send real orders (see OrderGateway.cpp). This warning will change
+        // when EIP-712 signing lands.
+        spdlog::warn("LiveGateway selected — STUB: no real orders are sent yet");
         gateway = std::make_unique<bot::LiveGateway>(
-            args.capital, args.api_key, args.api_secret,
-            args.passphrase, args.priv_key);
+            args.capital, api_key, api_secret, passphrase, priv_key);
     }
     else
     {

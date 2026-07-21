@@ -5,8 +5,8 @@
 // Polymarket harvester on the same AWS instance — the two datasets share
 // the same local clock and can be joined by timestamp in analysis.
 //
-// Why Coinbase instead of Coinbase?
-//   Coinbase.com returns HTTP 451 (geo-blocked) from all AWS US-region IPs.
+// Why Coinbase instead of Binance?
+//   Binance.com returns HTTP 451 (geo-blocked) from all AWS US-region IPs.
 //   Coinbase is US-domiciled and accessible from any AWS region.
 //   BTC-USD liquidity is equivalent for our latency-arb research purposes.
 //

@@ -13,6 +13,7 @@
 #include <array>
 #include <chrono>
 #include <cstring> // std::memcpy, std::memset
+#include <memory>  // std::make_unique
 #include <string>
 #include <thread> // std::this_thread::sleep_for
 #include <vector>
@@ -49,9 +50,25 @@ namespace polymarket::gateway
         return json;
     }
 
-    // Maximum WebSocket message size we will process.  Messages larger than this
-    // are silently dropped (they are not valid single-tick price_change payloads).
-    static constexpr std::size_t MAX_PAYLOAD_BYTES = 8 * 1024; // 8 KB
+    // Maximum WebSocket message size we will process. Multi-leg price_change
+    // events (~250 B/leg) can exceed a few KB during volatile bursts — exactly
+    // the moments worth capturing — so this must be generous. Matches the bot's
+    // FeedHandler cap (64 KB). Oversized messages are counted and logged
+    // (throttled), never dropped silently.
+    static constexpr std::size_t MAX_PAYLOAD_BYTES = 64 * 1024; // 64 KB
+
+    // Staleness watchdog: if we are connected but no message arrives for this
+    // long, the TCP connection may be half-open (no Close/Error fires) — force a
+    // reconnect. Also send WS pings so a dead peer is detected proactively.
+    static constexpr int64_t STALE_TIMEOUT_MS = 90'000; // 90 s
+    static constexpr int PING_INTERVAL_S = 30;          // matches the Coinbase feed
+
+    static int64_t now_ms() noexcept
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
 
     // simdjson requires SIMDJSON_PADDING (= 64) bytes of readable memory after
     // the end of every input buffer for SIMD vectorisation.  We allocate a
@@ -75,7 +92,7 @@ namespace polymarket::gateway
         const char *url,
         int core_id,
         const std::vector<std::string> &tokens)
-        : impl_(new Impl{}), ring_(ring), url_(url), subscription_json_(build_subscription_json(tokens)), core_id_(core_id)
+        : impl_(std::make_unique<Impl>()), ring_(ring), url_(url), subscription_json_(build_subscription_json(tokens)), core_id_(core_id)
     {
         full_subscription_json_ = subscription_json_;
         spdlog::info("[ws client] Subscription built for {} token IDs ({} bytes)",
@@ -85,8 +102,7 @@ namespace polymarket::gateway
     WebSocketClient::~WebSocketClient()
     {
         stop();
-        delete impl_;
-        impl_ = nullptr;
+        // impl_ (std::unique_ptr<Impl>) is destroyed here, where Impl is complete.
     }
 
     // ---------------------------------------------------------------------------
@@ -99,10 +115,19 @@ namespace polymarket::gateway
     // ---------------------------------------------------------------------------
     void WebSocketClient::run()
     {
-        running_.store(true, std::memory_order_relaxed);
+        // Do NOT re-assert running_ here. running_ defaults to true; if stop()
+        // was already called (e.g. a SIGINT delivered before run() started),
+        // re-asserting true would erase it and the process would ignore the
+        // first Ctrl-C. Just bail out if we were already asked to stop.
+        if (!running_.load(std::memory_order_relaxed))
+            return;
 
         ix::WebSocket &ws = impl_->ws;
         ws.setUrl(url_);
+
+        // Send WS pings so a dead/half-open peer is detected proactively rather
+        // than sitting silent until kernel TCP keepalive eventually gives up.
+        ws.setPingInterval(PING_INTERVAL_S);
 
         // ── Message callback (called from the IXWebSocket I/O thread) ────────
         ws.setOnMessageCallback([this](const ix::WebSocketMessagePtr &msg)
@@ -129,6 +154,7 @@ namespace polymarket::gateway
                                             std::lock_guard<std::mutex> lk(subscription_mutex_);
                                             impl_->ws.send(full_subscription_json_); // replays ALL tokens on reconnect
                                         }
+                                        last_msg_ms_.store(now_ms(), std::memory_order_relaxed);
                                         connected_.store(true, std::memory_order_release);
                                     }
                                     else if (msg->type == ix::WebSocketMessageType::Error)
@@ -154,9 +180,25 @@ namespace polymarket::gateway
 
                                         const std::string &payload = msg->str;
 
+                                        // A message arrived — refresh the liveness timestamp for the
+                                        // staleness watchdog (even if oversized: the peer is alive).
+                                        last_msg_ms_.store(now_ms(), std::memory_order_relaxed);
+
                                         if (payload.size() > MAX_PAYLOAD_BYTES)
                                         {
-                                            return; // oversized message — skip silently
+                                            // Count the drop and warn (throttled: first, then every
+                                            // 256th) so a burst of oversized frames is visible without
+                                            // spamming the log. Silent drops here used to hide data loss
+                                            // during exactly the volatile windows worth capturing.
+                                            const uint64_t n =
+                                                oversized_drops_.fetch_add(1, std::memory_order_relaxed) + 1;
+                                            if ((n & 0xFF) == 1)
+                                            {
+                                                spdlog::warn("[ws client] dropped oversized message "
+                                                             "({} bytes > {} cap); total dropped={}",
+                                                             payload.size(), MAX_PAYLOAD_BYTES, n);
+                                            }
+                                            return;
                                         }
 
                                         std::memcpy(tl_buf.data(), payload.data(), payload.size());
@@ -174,10 +216,31 @@ namespace polymarket::gateway
 
         ws.start(); // non-blocking: spawns the I/O thread
 
-        // ── Block calling thread until stop() ────────────────────────────────
+        // ── Block calling thread until stop(); run the staleness watchdog ────
         while (running_.load(std::memory_order_relaxed))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+            // If we're connected but haven't heard anything for STALE_TIMEOUT_MS,
+            // the connection may be half-open (a NAT/idle timeout that never
+            // surfaces a Close/Error). IXWebSocket's auto-reconnect only fires on
+            // an observed close, so force a fresh connect here. The pings above
+            // make this rare; this is the backstop.
+            if (connected_.load(std::memory_order_acquire))
+            {
+                const int64_t last = last_msg_ms_.load(std::memory_order_relaxed);
+                const int64_t elapsed = now_ms() - last;
+                if (last > 0 && elapsed > STALE_TIMEOUT_MS)
+                {
+                    spdlog::warn("[ws client] no message for {} ms — forcing "
+                                 "reconnect (stale/half-open connection)",
+                                 elapsed);
+                    connected_.store(false, std::memory_order_release);
+                    last_msg_ms_.store(now_ms(), std::memory_order_relaxed); // avoid repeat-fire
+                    ws.stop();  // joins the current I/O thread
+                    ws.start(); // spawns a fresh one → Open → re-subscribe
+                }
+            }
         }
 
         ws.stop(); // signals and joins the I/O thread
@@ -211,9 +274,22 @@ namespace polymarket::gateway
             auto pos = full_subscription_json_.rfind(']');
             if (pos != std::string::npos)
             {
+                // If the array is currently empty ("[]"), the first token must
+                // NOT be prefixed with a comma, or we'd produce ["[,\"tok\"]"
+                // — invalid JSON that makes the reconnect replay subscribe to
+                // nothing. Reachable when the initial token list was empty
+                // (e.g. POLYMARKET_MARKET_FILTER matched nothing at boot).
+                const bool empty_array =
+                    (pos > 0 && full_subscription_json_[pos - 1] == '[');
                 std::string insert;
-                for (const auto &tok : new_tokens)
-                    insert += ",\"" + tok + "\"";
+                for (std::size_t i = 0; i < new_tokens.size(); ++i)
+                {
+                    if (!(empty_array && i == 0))
+                        insert += ',';
+                    insert += '"';
+                    insert += new_tokens[i];
+                    insert += '"';
+                }
                 full_subscription_json_.insert(pos, insert);
             }
         }

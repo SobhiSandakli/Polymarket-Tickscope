@@ -106,7 +106,7 @@ def fetch_crypto_markets() -> list[dict]:
             "active": "true",
             "limit": page_size,
             "offset": offset,
-        })
+        }, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, list) or not data:

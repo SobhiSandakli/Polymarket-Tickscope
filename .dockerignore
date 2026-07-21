@@ -1,0 +1,19 @@
+# Keep the build context small and free of history, captures, and private docs.
+# Without this, `COPY . .` bakes the full .git history (incl. large archived
+# journals) and local secrets/notes into the image.
+.git
+.gitignore
+data
+logs
+build
+.venv
+research_env
+CLAUDE.md
+.claude
+.devcontainer
+AUDIT_FINDINGS.md
+*.duckdb
+*.duckdb.tmp
+__pycache__
+*.pyc
+.DS_Store

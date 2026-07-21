@@ -24,8 +24,12 @@
 #include <unordered_set>
 
 // ---------------------------------------------------------------------------
-// Global ring buffer — MPSC queue connecting N WebSocket I/O threads to the
-// single Tickerplant consumer.  Static storage: never freed, never moved.
+// Global ring buffer connecting the WebSocket I/O thread to the single
+// Tickerplant consumer.  The harvester runs exactly ONE producer and enqueues
+// via try_produce(), which is single-producer only (see RingBuffer). Adding a
+// second producer on this ring would require produce() or a CAS-based
+// try_produce() — do not point another WS client at g_ring as-is.
+// Static storage: never freed, never moved.
 // ---------------------------------------------------------------------------
 static polymarket::memory::RingBuffer<polymarket::core::Tick, 65536> g_ring;
 
@@ -79,9 +83,12 @@ static void init_logger()
 
 // ---------------------------------------------------------------------------
 // Retention helpers (used by the re-discovery thread when
-// POLYMARKET_RETENTION_DAYS is set). All UTC, all based on the date embedded in
-// the capture filename — never mtime — so retention tracks DATA age, not when a
-// file happened to be decoded.
+// POLYMARKET_RETENTION_DAYS is set). Two complementary cutoffs:
+//   • iso_date_days_ago()   → a UTC "YYYY-MM-DD" string, compared against each
+//     metadata row's end_date to prune resolved markets (row-level).
+//   • prune_old_data_files() → deletes data files by last-modified time (mtime),
+//     so the rule is generic across every stream, not tied to any filename
+//     convention. See ADR-0005.
 // ---------------------------------------------------------------------------
 static std::string iso_date_days_ago(int days) // "YYYY-MM-DD"
 {
@@ -246,7 +253,9 @@ static void rediscover_loop(
 // ─────────────────────────────────────
 //  1. Signal handler calls wsc.stop() — sets running_ = false.
 //  2. run() exits its sleep-loop; calls ws.stop() to join the I/O thread.
-//  3. run() returns; tp.stop() drains the ring and joins the Tickerplant.
+//  3. tp.stop() sets the Tickerplant's running_ = false; its run() then drains
+//     any ticks still buffered in the ring before the thread joins (in the
+//     Tickerplant destructor), so an in-flight burst is not lost on shutdown.
 //  4. Logger is flushed and the process exits cleanly.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------

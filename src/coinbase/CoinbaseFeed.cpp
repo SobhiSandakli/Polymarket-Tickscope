@@ -3,8 +3,9 @@
 // IXWebSocket-based client for the Coinbase Advanced Trade ticker stream.
 // Parses JSON with simdjson.  Writes BtcTick records to BtcJournal.
 //
-// Why Coinbase: Coinbase.com returns HTTP 451 from AWS US-region IPs.
-// Coinbase ticker is public (no auth), sends bid/ask on every quote change.
+// Why Coinbase (not Binance): Binance.com returns HTTP 451 from AWS US-region
+// IPs. Coinbase's ticker is public (no auth) and sends bid/ask on every quote
+// change, so it serves as the BTC reference feed.
 //
 // Subscription (sent on Open):
 //   {"type":"subscribe","product_ids":["BTC-USD"],"channels":["ticker"]}
@@ -24,6 +25,7 @@
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <thread>
 
 #if defined(__linux__)
@@ -73,7 +75,7 @@ namespace coinbase
     CoinbaseFeed::CoinbaseFeed(BtcJournal &journal,
                              const char *url,
                              int core_id)
-        : impl_(new Impl()),
+        : impl_(std::make_unique<Impl>()),
           journal_(journal),
           url_(url),
           core_id_(core_id)
@@ -83,7 +85,7 @@ namespace coinbase
     CoinbaseFeed::~CoinbaseFeed()
     {
         stop();
-        delete impl_;
+        // impl_ (std::unique_ptr<Impl>) is destroyed here, where Impl is complete.
     }
 
     // ── stop() — signal-handler-safe ─────────────────────────────────────────
@@ -95,7 +97,11 @@ namespace coinbase
     // ── run() — blocks until stop() is called ────────────────────────────────
     void CoinbaseFeed::run()
     {
-        running_.store(true, std::memory_order_relaxed);
+        // Do NOT re-assert running_ here: a stop() delivered before run() starts
+        // (e.g. from a signal handler) must not be erased. running_ defaults to
+        // true; stop() sets it false.
+        if (!running_.load(std::memory_order_relaxed))
+            return;
 
         auto &ws = impl_->ws;
         ws.setUrl(url_);

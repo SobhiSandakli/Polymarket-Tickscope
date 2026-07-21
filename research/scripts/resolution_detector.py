@@ -21,6 +21,8 @@ for _base in [pathlib.Path.cwd(), pathlib.Path.cwd().parent, pathlib.Path.cwd().
         PQ_DIR = _base / 'data' / 'parquet'
         META_CSV = str(_base / 'data' / 'market_metadata.csv')
         break
+else:
+    sys.exit("data/parquet not found — run from the repo root with captured data present.")
 
 THRESHOLD = 0.40
 
@@ -259,7 +261,7 @@ if len(unresolved) > 0:
                     api_results.append({'condition_id': cid, 'api_outcome': 'NOT_FOUND'})
             else:
                 api_results.append({'condition_id': cid, 'api_outcome': f'HTTP_{resp.status_code}'})
-        except:
+        except requests.RequestException:
             api_results.append({'condition_id': cid, 'api_outcome': 'ERROR'})
 
         if (i + 1) % 5 == 0:

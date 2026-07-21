@@ -13,10 +13,10 @@ Quarantined strategies raise QuarantineError immediately — no sweeps run.
 
 Usage:
     from research.backtest.optimizer import LatencySweep, CoarseGridSearch
-    from research.backtest.strategies import ArbYesNo, ConvergenceNo
+    from research.backtest.strategies import ConvergenceNo
 
     sweep = LatencySweep()
-    df = sweep.run(ArbYesNo, fixed_kwargs={}, loader=loader)
+    df = sweep.run(ConvergenceNo, fixed_kwargs={"size": 10.0}, loader=loader)
 
     grid = CoarseGridSearch()
     result = grid.run(ConvergenceNo,

@@ -11,6 +11,7 @@
 #include <cmath>  // std::pow
 #include <cstdio> // std::fopen, std::fprintf, std::fclose
 #include <ctime>  // std::gmtime, std::strftime
+#include <mutex>
 #include <string>
 
 namespace bot
@@ -87,17 +88,21 @@ namespace bot
         const double cost = shares * fill_price;
         const double fee_base = dynamic_fee_rate(fill_price);
         const double buy_fee = shares * fee_base * fill_price; // USDC (from fills.py)
-        capital_ -= (cost + buy_fee);
-        total_fees_ += buy_fee;
 
-        Position pos;
-        pos.condition_id = cid;
-        pos.question = question;
-        pos.shares = shares;
-        pos.entry_price = fill_price;
-        pos.buy_fee = buy_fee;
-        pos.entry_time_ms = now_ms();
-        positions_[cid] = pos;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            capital_ -= (cost + buy_fee);
+            total_fees_ += buy_fee;
+
+            Position pos;
+            pos.condition_id = cid;
+            pos.question = question;
+            pos.shares = shares;
+            pos.entry_price = fill_price;
+            pos.buy_fee = buy_fee;
+            pos.entry_time_ms = now_ms();
+            positions_[cid] = pos;
+        }
 
         // Log line format:
         // 2026-03-03 14:32:01 UTC | BUY  NO | 14.7sh | fill=0.6903 | fee=0.43 | YES_mid=0.3812 NO_ask=0.6900 | "..."
@@ -118,25 +123,40 @@ namespace bot
                             double fill_price,
                             double no_bid)
     {
-        auto it = positions_.find(cid);
-        if (it == positions_.end())
+        // State mutation happens under the lock; file/log I/O happens after it
+        // is released so a slow disk write can't stall the WS thread's buy().
+        double sell_fee = 0.0;
+        double pnl = 0.0;
+        std::string question;
         {
-            spdlog::error("[paper] SELL called with no open position for {}", cid);
-            return;
+            std::lock_guard<std::mutex> lk(mtx_);
+            auto it = positions_.find(cid);
+            if (it == positions_.end())
+            {
+                // No open position. Under concurrency this is expected, not an
+                // error: the price-exit on the WS thread can race the expiry
+                // sweep on the main thread, and whichever sell() runs second
+                // finds the position already closed. Serialising here is exactly
+                // what prevents the double-credit — just return.
+                spdlog::debug("[paper] SELL for {} — already closed (raced)", cid);
+                return;
+            }
+
+            const Position &pos = it->second;
+            const double proceeds = shares * fill_price;
+            const double cost = shares * pos.entry_price;
+            const double fee_base = dynamic_fee_rate(fill_price);
+            sell_fee = shares * fee_base;                   // USDC (from fills.py)
+            pnl = proceeds - cost - sell_fee - pos.buy_fee; // net of ALL fees
+
+            capital_ += (proceeds - sell_fee);
+            realised_pnl_ += pnl;
+            total_fees_ += sell_fee;
+            question = pos.question;
+
+            positions_.erase(it);
         }
 
-        const Position &pos = it->second;
-        const double proceeds = shares * fill_price;
-        const double cost = shares * pos.entry_price;
-        const double fee_base = dynamic_fee_rate(fill_price);
-        const double sell_fee = shares * fee_base;                   // USDC (from fills.py)
-        const double pnl = proceeds - cost - sell_fee - pos.buy_fee; // net of ALL fees
-
-        capital_ += (proceeds - sell_fee);
-        realised_pnl_ += pnl;
-        total_fees_ += sell_fee;
-
-        const std::string question = pos.question;
         const double no_mid_approx = no_bid; // approx for log (mid not passed in)
 
         char buf[512];
@@ -149,33 +169,36 @@ namespace bot
 
         spdlog::info("[paper] SELL NO {:.1f}sh @ {:.4f} fee={:.3f} pnl={:+.3f} \"{}\"",
                      shares, fill_price, sell_fee, pnl, question);
-
-        positions_.erase(it);
     }
 
     bool PaperGateway::has_position(const std::string &cid) const
     {
+        std::lock_guard<std::mutex> lk(mtx_);
         return positions_.count(cid) > 0;
     }
 
     double PaperGateway::available_capital() const
     {
+        std::lock_guard<std::mutex> lk(mtx_);
         return capital_;
     }
 
     double PaperGateway::realised_pnl() const
     {
+        std::lock_guard<std::mutex> lk(mtx_);
         return realised_pnl_;
     }
 
     double PaperGateway::total_fees() const
     {
+        std::lock_guard<std::mutex> lk(mtx_);
         return total_fees_;
     }
 
-    const std::unordered_map<std::string, Position> &PaperGateway::positions() const
+    std::unordered_map<std::string, Position> PaperGateway::positions() const
     {
-        return positions_;
+        std::lock_guard<std::mutex> lk(mtx_);
+        return positions_; // returns a copy under the lock
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -212,16 +235,30 @@ namespace bot
 
     bool LiveGateway::has_position(const std::string &cid) const
     {
+        std::lock_guard<std::mutex> lk(mtx_);
         return positions_.count(cid) > 0;
     }
 
-    double LiveGateway::available_capital() const { return capital_; }
-    double LiveGateway::realised_pnl() const { return realised_pnl_; }
-    double LiveGateway::total_fees() const { return total_fees_; }
-
-    const std::unordered_map<std::string, Position> &LiveGateway::positions() const
+    double LiveGateway::available_capital() const
     {
-        return positions_;
+        std::lock_guard<std::mutex> lk(mtx_);
+        return capital_;
+    }
+    double LiveGateway::realised_pnl() const
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return realised_pnl_;
+    }
+    double LiveGateway::total_fees() const
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return total_fees_;
+    }
+
+    std::unordered_map<std::string, Position> LiveGateway::positions() const
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return positions_; // returns a copy under the lock
     }
 
 } // namespace bot

@@ -77,19 +77,11 @@ namespace polymarket::tickerplant
 
     void Tickerplant::force_rotate()
     {
-        // Advance the slot artificially so make_journal_path produces a new name.
-        // In production, time naturally advances; this is for tests only.
-        ++current_slot_;
-        if (journal_fp_)
-        {
-            std::fclose(journal_fp_);
-            journal_fp_ = nullptr;
-        }
-
-        const std::time_t synthetic =
-            static_cast<std::time_t>(current_slot_ * rotation_interval_minutes_ * 60);
-        const std::string path = make_journal_path(synthetic);
-        journal_fp_ = std::fopen(path.c_str(), "ab");
+        // Test-only: just raise a request. The consumer thread performs the
+        // fclose/fopen inside run(), so journal_fp_ is never touched from two
+        // threads (the original version mutated it here, racing the hot loop's
+        // fwrite — a use-after-free of the FILE*). Safe to call while running.
+        force_rotate_.store(true, std::memory_order_relaxed);
     }
 
     // ---------------------------------------------------------------------------
@@ -144,7 +136,7 @@ namespace polymarket::tickerplant
     // std::string for the filename (acceptable at ~1 call per 15 minutes).
     // ---------------------------------------------------------------------------
 
-    void Tickerplant::rotate()
+    void Tickerplant::rotate(std::time_t now)
     {
         if (journal_fp_)
         {
@@ -152,18 +144,16 @@ namespace polymarket::tickerplant
             journal_fp_ = nullptr;
         }
 
-        // Advance slot by exactly 1 from what triggered the rotation, rather
-        // than re-reading the clock after fclose.  This prevents a race where
-        // the clock still reads the old slot (e.g. called nanoseconds before
-        // a boundary) and we silently skip the window.
-        const int64_t new_slot = current_slot_ + 1;
-        current_slot_ = new_slot;
+        // Snap to the window that `now` actually falls in. The caller only
+        // invokes rotate() once it has observed time_slot(now) != current_slot_,
+        // so this never skips a live window. Using the real wall clock (rather
+        // than the old current_slot_ + 1) means that after a quiet gap spanning
+        // several windows, the filename jumps straight to the current window
+        // instead of crawling forward one window per rotation — which used to
+        // stamp fresh data with a window that had already been sealed/deleted.
+        current_slot_ = time_slot(now);
 
-        // Reconstruct the wall-clock time for this slot so make_journal_path
-        // can format YYYYMMDD_HHMM correctly.
-        const std::time_t slot_time = static_cast<std::time_t>(
-            new_slot * rotation_interval_minutes_ * 60);
-        const std::string path = make_journal_path(slot_time);
+        const std::string path = make_journal_path(now);
         journal_fp_ = std::fopen(path.c_str(), "ab");
         // If fopen fails mid-run, journal_fp_ stays null and ticks are silently
         // dropped until the next rotation.  Production would log a critical alert.
@@ -195,34 +185,87 @@ namespace polymarket::tickerplant
 
         // ── Step 2: The tight hot loop ───────────────────────────────────────
         core::Tick tick;
-        uint64_t tick_counter = 0;
+        uint64_t loop_iters = 0;
+        std::time_t last_maintenance = std::time(nullptr);
 
         while (running_.load(std::memory_order_relaxed))
         {
+            // ── Test-only forced rotation ────────────────────────────────────
+            // Performed here on the consumer thread (see force_rotate()) so the
+            // FILE* is never touched concurrently. Checked at the top of the
+            // loop so a rotation requested between two tick batches takes effect
+            // before the second batch is written.
+            if (force_rotate_.load(std::memory_order_relaxed))
+            {
+                force_rotate_.store(false, std::memory_order_relaxed);
+                ++current_slot_;
+                if (journal_fp_)
+                {
+                    std::fclose(journal_fp_);
+                    journal_fp_ = nullptr;
+                }
+                const std::time_t synthetic = static_cast<std::time_t>(
+                    current_slot_ * rotation_interval_minutes_ * 60);
+                const std::string path = make_journal_path(synthetic);
+                journal_fp_ = std::fopen(path.c_str(), "ab");
+            }
+
             if (ring_.consume(tick))
             {
-
                 if (journal_fp_)
                 {
                     std::fwrite(&tick, sizeof(core::Tick), 1, journal_fp_);
                 }
-
                 ticks_written_.fetch_add(1, std::memory_order_release);
-                ++tick_counter;
+            }
 
-                // Every 1024 ticks, check if we've crossed into a new time window.
-                // Bitwise AND is a single cycle — effectively free.
-                if (rotation_interval_minutes_ > 0 &&
-                    (tick_counter & 0x3FF) == 0)
+            // ── Time-based maintenance: rotation + flush ─────────────────────
+            // Runs on the wall clock, NOT on tick volume — so it fires even
+            // during a quiet market when no ticks arrive. The clock is read at
+            // most ~once per 1024 iterations (single-cycle mask) and the real
+            // work is gated to once per second by the last_maintenance guard.
+            //
+            // Why this matters (data-loss fix): rotation used to be checked only
+            // on tick receipt, and there was no fflush at all. An idle segment
+            // could therefore sit open past its window with buffered-but-unwritten
+            // ticks, while hourly_flush.sh / the retention sweep treat any file
+            // with mtime > 20min as sealed — and delete it out from under the
+            // still-open writer. Flushing on a timer keeps the on-disk mtime
+            // honest, and a time-based rotation closes idle segments on schedule.
+            if ((++loop_iters & 0x3FF) == 0)
+            {
+                const std::time_t now = std::time(nullptr);
+                if (now != last_maintenance)
                 {
-                    const std::time_t now = std::time(nullptr);
-                    const int64_t slot = time_slot(now);
-                    if (slot != current_slot_)
+                    last_maintenance = now;
+                    if (journal_fp_)
                     {
-                        rotate();
+                        std::fflush(journal_fp_);
+                    }
+                    if (rotation_interval_minutes_ > 0 &&
+                        time_slot(now) != current_slot_)
+                    {
+                        rotate(now);
                     }
                 }
             }
+        }
+
+        // ── Step 3: Drain the ring before exiting ────────────────────────────
+        // stop() only flips running_ to false; ticks still sitting in the ring
+        // at that moment (up to 65536 = 8 MB during a burst + SIGINT) would be
+        // lost without this final pass.
+        while (ring_.consume(tick))
+        {
+            if (journal_fp_)
+            {
+                std::fwrite(&tick, sizeof(core::Tick), 1, journal_fp_);
+            }
+            ticks_written_.fetch_add(1, std::memory_order_release);
+        }
+        if (journal_fp_)
+        {
+            std::fflush(journal_fp_);
         }
     }
 

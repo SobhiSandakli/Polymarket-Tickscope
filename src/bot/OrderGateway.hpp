@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -49,7 +50,12 @@ namespace bot
         virtual double available_capital() const = 0;
         virtual double realised_pnl() const = 0;
         virtual double total_fees() const = 0;
-        virtual const std::unordered_map<std::string, Position> &
+
+        // Returns a snapshot COPY (not a reference): buy()/sell() run on the
+        // WS I/O thread while the main thread reads positions for status /
+        // mark-to-market, so callers must never hold a reference into the
+        // live map. The copy is taken under the gateway's lock.
+        virtual std::unordered_map<std::string, Position>
         positions() const = 0;
     };
 
@@ -72,11 +78,14 @@ namespace bot
         double available_capital() const override;
         double realised_pnl() const override;
         double total_fees() const override;
-        const std::unordered_map<std::string, Position> &
+        std::unordered_map<std::string, Position>
         positions() const override;
 
     private:
         std::string log_path_;
+        // mtx_ guards capital_, realised_pnl_, total_fees_, positions_ — they are
+        // mutated on the WS I/O thread (buy/sell) and read on the main thread.
+        mutable std::mutex mtx_;
         double capital_; // decremented on buy, incremented on sell
         double realised_pnl_ = 0.0;
         double total_fees_ = 0.0;
@@ -109,10 +118,11 @@ namespace bot
         double available_capital() const override;
         double realised_pnl() const override;
         double total_fees() const override;
-        const std::unordered_map<std::string, Position> &
+        std::unordered_map<std::string, Position>
         positions() const override;
 
     private:
+        mutable std::mutex mtx_; // guards capital_/realised_pnl_/total_fees_/positions_
         double capital_;
         double realised_pnl_ = 0.0;
         double total_fees_ = 0.0;

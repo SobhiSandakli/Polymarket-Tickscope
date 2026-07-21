@@ -3,6 +3,10 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#ifndef NDEBUG
+#include <cassert>
+#include <thread>
+#endif
 
 namespace polymarket::memory
 {
@@ -171,6 +175,24 @@ namespace polymarket::memory
         // ------------------------------------------------------------------
         [[nodiscard]] bool try_produce(const T &item) noexcept
         {
+#ifndef NDEBUG
+            // Enforce the single-producer contract in debug builds: the first
+            // caller claims ownership, and any call from a second thread trips
+            // the assert immediately instead of silently corrupting the ring
+            // (two producers can claim the same slot, stalling the consumer
+            // forever). For true MPSC, use produce() or make this CAS-based.
+            {
+                const std::thread::id self = std::this_thread::get_id();
+                std::thread::id expected{};
+                if (!dbg_tryproduce_tid_.compare_exchange_strong(
+                        expected, self, std::memory_order_relaxed) &&
+                    expected != self)
+                {
+                    assert(false && "RingBuffer::try_produce is single-producer "
+                                    "only — called from a second thread");
+                }
+            }
+#endif
             const std::size_t pos = write_index_.load(std::memory_order_relaxed);
             Slot &slot = slots_[pos & MASK];
 
@@ -244,6 +266,12 @@ namespace polymarket::memory
         // no two adjacent slots share a cache line, eliminating
         // producer–producer false sharing on simultaneous neighbouring writes.
         std::array<Slot, Capacity> slots_;
+
+#ifndef NDEBUG
+        // Debug-only single-producer guard for try_produce() (see there).
+        // Absent from release builds, so the hot struct layout is unchanged.
+        mutable std::atomic<std::thread::id> dbg_tryproduce_tid_{};
+#endif
     };
 
 } // namespace polymarket::memory

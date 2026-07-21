@@ -109,7 +109,7 @@ namespace bot
                 if (!should_exit)
                     return;
 
-                const auto &pos_map = gateway_.positions();
+                const auto pos_map = gateway_.positions(); // snapshot copy
                 auto it = pos_map.find(cid);
                 if (it == pos_map.end())
                     return;
@@ -127,11 +127,17 @@ namespace bot
             const int64_t now = now_ms();
             const int64_t grace_ms = static_cast<int64_t>(EXPIRY_GRACE_S) * 1000;
 
-            // Collect CIDs to close (can't modify positions map while iterating)
+            // Take ONE snapshot of positions (a copy — see OrderGateway::positions()).
+            // Iterating a live reference here while sell() erases from it — or while
+            // the WS thread mutates it — was the original bug.
+            const auto positions = gateway_.positions();
+
+            // Collect CIDs to close (can't sell while iterating).
             std::vector<std::string> expired_cids;
 
-            for (const auto &[cid, pos] : gateway_.positions())
+            for (const auto &[cid, pos] : positions)
             {
+                (void)pos;
                 MarketMeta meta;
                 if (!books_.get_meta(cid, meta))
                     continue;
@@ -143,9 +149,8 @@ namespace bot
 
             for (const auto &cid : expired_cids)
             {
-                const auto &pos_map = gateway_.positions();
-                auto it = pos_map.find(cid);
-                if (it == pos_map.end())
+                auto it = positions.find(cid);
+                if (it == positions.end())
                     continue;
 
                 MarketBook bk;

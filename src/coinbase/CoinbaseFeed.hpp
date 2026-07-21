@@ -1,7 +1,7 @@
 #pragma once
 // CoinbaseFeed.hpp
 //
-// Connects to the Coinbase BTCUSDT ticker WebSocket stream, parses each
+// Connects to the Coinbase BTC-USD ticker WebSocket stream, parses each
 // quote update with simdjson, and writes the result to a BtcJournal.
 //
 // Thread model
@@ -20,12 +20,13 @@
 //  • File I/O is buffered in BtcJournal (64 KB buffer, flushed on full/rotate).
 //
 // Coinbase ticker message format:
-//   {"u":400900217,"s":"BTCUSDT","b":"98400.50","B":"1.23","a":"98401.00","A":"0.56"}
-//   Fields used: "b" (best bid), "a" (best ask).
+//   {"type":"ticker","product_id":"BTC-USD","best_bid":"98400.50","best_ask":"98401.00"}
+//   Fields used: "best_bid", "best_ask".
 
 #include "BtcJournal.hpp"
 
 #include <atomic>
+#include <memory>
 #include <string>
 
 namespace coinbase
@@ -64,12 +65,14 @@ namespace coinbase
         void on_message(const std::string &payload);
 
         struct Impl;
-        Impl *impl_;
+        std::unique_ptr<Impl> impl_;
 
         BtcJournal &journal_;
         std::string url_;
         int core_id_;
-        std::atomic<bool> running_{false};
+        // Defaults to true so a stop() delivered before run() starts (e.g. from
+        // a signal handler) is not erased. run() must not re-assert this.
+        std::atomic<bool> running_{true};
         std::atomic<double> mid_{0.0}; // latest BTC mid, readable from any thread
     };
 

@@ -36,6 +36,7 @@ CLAUDE.md
 commands.txt
 PLAN.md
 ARCHITECTURE_WALKTHROUGH.md
+AUDIT_FINDINGS.md
 
 # Editor / tooling cache
 .cache/

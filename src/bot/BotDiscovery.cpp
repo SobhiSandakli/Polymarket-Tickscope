@@ -96,7 +96,9 @@ namespace bot
         {
             client.set_connection_timeout(CONNECT_TIMEOUT_S);
             client.set_read_timeout(READ_TIMEOUT_S);
-            client.enable_server_certificate_verification(false);
+            // TLS verification left enabled (httplib default): discovery output
+            // drives which markets the bot subscribes to and trades, so forged
+            // responses must not be accepted. Uses the system CA bundle.
         }
     };
 

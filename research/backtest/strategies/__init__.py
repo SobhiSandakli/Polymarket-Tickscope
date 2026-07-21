@@ -3,12 +3,12 @@ it is in-sample positive but OVERFIT (went negative out-of-sample) — kept as t
 reference implementation, not a live edge. See docs/FINDINGS.md."""
 
 from .convergence_no import ConvergenceNo
-from .base import BaseStrategy
+from .base import Strategy
 
 ALL_STRATEGIES = [ConvergenceNo]
 
 __all__ = [
-    "BaseStrategy",
+    "Strategy",
     "ConvergenceNo",
     "ALL_STRATEGIES",
 ]

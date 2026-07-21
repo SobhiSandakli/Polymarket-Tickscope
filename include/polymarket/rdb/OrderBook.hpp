@@ -137,13 +137,24 @@ namespace polymarket::rdb
 
             if (it == token_to_idx_.end())
             {
-                // Cold path: new token seen for the first time.
-                uint16_t idx = next_idx_.fetch_add(1, std::memory_order_relaxed);
+                // Cold path: new token seen for the first time. apply_tick runs
+                // on the single tickerplant consumer thread, so a plain
+                // load/guard/store is safe here.
+                //
+                // The counter must NOT advance once the table is full. The old
+                // code did an unconditional fetch_add, so a full table kept
+                // incrementing next_idx_ on every unseen token until the uint16_t
+                // wrapped back below MAX_TOKENS and aliased slots already owned by
+                // other tokens — silent cross-token book corruption. Reachable in
+                // production: the Polymarket firehose is ~10k tokens vs
+                // MAX_TOKENS = 4096. Guarding the increment caps the counter and
+                // makes "table full" a clean, permanent drop.
+                uint16_t idx = next_idx_.load(std::memory_order_relaxed);
                 if (idx >= MAX_TOKENS)
                 {
-                    // Table full — silent drop. Should never happen in practice.
-                    return;
+                    return; // table full — drop
                 }
+                next_idx_.store(static_cast<uint16_t>(idx + 1), std::memory_order_relaxed);
                 // ONE heap alloc: construct std::string key for map storage.
                 auto [inserted_it, ok] = token_to_idx_.emplace(std::string{key}, idx);
                 (void)ok;

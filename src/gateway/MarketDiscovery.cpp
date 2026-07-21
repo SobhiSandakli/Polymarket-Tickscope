@@ -46,8 +46,18 @@ namespace polymarket::gateway
         out += '"';
         for (char c : s)
         {
+            // Neutralise embedded newlines. The metadata CSV is read back
+            // line-by-line (fgets), which is not RFC-4180-aware, so a literal
+            // CR/LF inside a field would desync the reader and corrupt/truncate
+            // every following row. A market title is remote API content, so a
+            // single odd character must not be able to poison the whole file.
+            if (c == '\n' || c == '\r')
+            {
+                out += ' ';
+                continue;
+            }
             if (c == '"')
-                out += '"'; // escape by doubling
+                out += '"'; // escape by doubling (RFC 4180)
             out += c;
         }
         out += '"';
@@ -113,7 +123,10 @@ namespace polymarket::gateway
         httplib::SSLClient cli(GAMMA_HOST, GAMMA_PORT);
         cli.set_connection_timeout(CONNECT_TIMEOUT);
         cli.set_read_timeout(READ_TIMEOUT);
-        cli.enable_server_certificate_verification(false);
+        // TLS certificate verification is left enabled (httplib's default): the
+        // token IDs and market metadata fetched here drive what gets captured and
+        // subscribed to, so an on-path attacker must not be able to forge them.
+        // Relies on the system CA bundle (ca-certificates, installed in Dockerfile).
 
         simdjson::ondemand::parser outer_parser;
         simdjson::ondemand::parser inner_parser;
