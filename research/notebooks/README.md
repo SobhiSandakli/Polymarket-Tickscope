@@ -12,7 +12,6 @@ the headline results to the supporting machinery.
 | [`oos_validation.ipynb`](oos_validation.ipynb) | Out-of-sample harness with **locked** parameters. Drop new parquet in, set `OOS_START_MS`, run — params never change, so a positive result is a real survival. | **ConvergenceNo — overfit risk.** This is the notebook that decides whether the edge is real. |
 | [`run_optimizer.ipynb`](run_optimizer.ipynb) | Parameter sweep / "alpha plateau" search across multiple strategies (latency sweep, coarse grid). Looks for robust plateaus rather than single lucky points. | Robustness check feeding the kill decisions in FINDINGS. |
 | [`resolution_detector.ipynb`](resolution_detector.ipynb) | Single DuckDB scan to compute the **true** NO-win resolution base rate from captured ticks — the empirical foundation of the ConvergenceNo thesis. | Base-rate evidence for ConvergenceNo. |
-| [`bot_pnl_audit.ipynb`](bot_pnl_audit.ipynb) | Parses `paper_trades.log` from the execution bot, verifies every trade was actually takeable, and reconciles realized/unrealized PnL. | Validates the execution path in `src/bot/` (paper mode). |
 
 ## Reproducing the headline numbers
 
@@ -30,7 +29,8 @@ python3 -m venv .venv && .venv/bin/pip install -r research/requirements.txt
 - `data/samples/crypto/` (BTC + Coinbase, same clock) is being captured — it will power
   [`coinbase_lag_analysis.ipynb`](coinbase_lag_analysis.ipynb) from a clone.
 - The full ~179M-tick research dataset is not committed; to regenerate analysis inputs
-  from your own capture, see [`docs/CAPTURE_RUNBOOK.md`](../../docs/CAPTURE_RUNBOOK.md):
+  from your own capture, use [`scripts/capture/run_capture.sh`](../../scripts/capture/run_capture.sh)
+  (see the top-level README), then:
 
 ```bash
 # 1. Capture ticks (see top-level README)

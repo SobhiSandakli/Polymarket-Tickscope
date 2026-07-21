@@ -32,8 +32,8 @@ ESPN's API reported it (range 50–73s, on the four goals with a clean market si
 
 Both feeds run on the same host with the same epoch-ms clock, so they join directly on
 `ts_ms` in DuckDB. Powers `coinbase_lag_analysis.ipynb` and gives `run_backtest.ipynb` /
-`oos_validation.ipynb` a from-clone dataset. Capture procedure:
-[`docs/CAPTURE_RUNBOOK.md`](../../docs/CAPTURE_RUNBOOK.md).
+`oos_validation.ipynb` a from-clone dataset. Capture it yourself with
+[`scripts/capture/run_capture.sh`](../../scripts/capture/run_capture.sh).
 
 ## Provenance
 

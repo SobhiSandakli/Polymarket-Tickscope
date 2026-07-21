@@ -57,7 +57,7 @@ Use a **focused filter** — it's the practical mode. Subscribing to the entire 
 | `POLYMARKET_REDISCOVER_MINS` | `15` | How often to re-scan for new/rolled-over markets. |
 | `POLYMARKET_RETENTION_DAYS` | _(unset = **unlimited**)_ | **You own your storage.** Set to `7`/`30`/… and the harvester self-prunes — ≈hourly, in-process, no scripts — **every file in the data dir** older than N days by mtime (Polymarket + Coinbase journals, ESPN CSVs, and any feed you add later — all treated identically), plus resolved metadata rows. Unset keeps everything (default). For a cloud archive, prefer an **S3 lifecycle rule** to expire shipped `.parquet`. |
 
-Capturing your own campaigns (joint match + BTC sessions, AWS deployment) is documented in [`docs/CAPTURE_RUNBOOK.md`](docs/CAPTURE_RUNBOOK.md), with a one-command orchestrator at [`scripts/capture/run_capture.sh`](scripts/capture/run_capture.sh).
+Capturing your own campaigns (joint match + BTC sessions) is orchestrated by [`scripts/capture/run_capture.sh`](scripts/capture/run_capture.sh) — one command runs the Polymarket harvester, the Coinbase reference feed, and an ESPN collector per match, then decodes every journal to Parquet.
 
 ---
 
@@ -151,7 +151,7 @@ include/    core/ (Tick 128B, BtcTick 64B) · memory/RingBuffer.hpp
 research/   backtest/ (fill engine + fee model + optimizer) · notebooks/ · scripts/
 data/samples/  committed sample datasets — one per market class
 scripts/    harvester/ (.bin→Parquet, ops) · collectors/ (ESPN, Betfair) · capture/ (campaigns)
-docs/       ARCHITECTURE · FINDINGS · CAPTURE_RUNBOOK · COINBASE_SETUP · adr/
+docs/       ARCHITECTURE · FINDINGS · adr/ (design decision records)
 tests/      ring buffer · feedhandler · tickerplant · order book
 ```
 
