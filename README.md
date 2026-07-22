@@ -1,6 +1,6 @@
 # Polymarket Tickscope
 
-[![CI](https://github.com/SobhiSandakli/Polymarket/actions/workflows/ci.yml/badge.svg)](https://github.com/SobhiSandakli/Polymarket/actions/workflows/ci.yml)
+[![CI](https://github.com/SobhiSandakli/Polymarket-Tickscope/actions/workflows/ci.yml/badge.svg)](https://github.com/SobhiSandakli/Polymarket-Tickscope/actions/workflows/ci.yml)
 
 *A microscope for Polymarket: capture its order book at the speed a trading desk sees it, then find out whether there's any money in it.*
 
