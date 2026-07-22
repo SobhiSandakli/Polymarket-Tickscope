@@ -15,6 +15,7 @@
 #include <polymarket/tickerplant/Tickerplant.hpp>
 #include <polymarket/memory/RingBuffer.hpp>
 #include <polymarket/core/Tick.hpp>
+#include <polymarket/rdb/OrderBook.hpp>
 
 #include <cmath> // std::abs
 #include <cstdio>
@@ -357,6 +358,106 @@ static bool run_rotation_test()
 }
 
 // ---------------------------------------------------------------------------
+// Test 3: run_rdb_test — the Tickerplant maintains a live RDB top-of-book
+//
+// Pushes known bid/ask updates for 3 distinct tokens through the ring and
+// verifies the Tickerplant's in-memory rdb::OrderBook reflects the latest
+// top-of-book for each. Also pushes one trade event (event_type 1) and
+// verifies it is journaled but does NOT alter the book (book-level events only).
+// ---------------------------------------------------------------------------
+static bool run_rdb_test()
+{
+    std::puts("[test_tickerplant_rdb]");
+
+    const char *journal_dir = "/tmp/polymarket_test_rdb";
+    cleanup_dir(journal_dir);
+
+    struct Expect
+    {
+        const char *id;
+        double bid_px, bid_sz, ask_px, ask_sz;
+    };
+    const Expect ex[] = {
+        {"TOKEN_AAA", 0.42, 100.0, 0.45, 120.0},
+        {"TOKEN_BBB", 0.10, 50.0, 0.12, 55.0},
+        {"TOKEN_CCC", 0.90, 10.0, 0.93, 12.0},
+    };
+    constexpr int NTOK = 3;
+
+    {
+        static polymarket::memory::RingBuffer<polymarket::core::Tick, 65536> ring;
+        polymarket::tickerplant::Tickerplant tp(
+            ring, journal_dir, /*core_id=*/0, /*rotation_minutes=*/0);
+        tp.start();
+
+        uint64_t produced = 0;
+        for (int t = 0; t < NTOK; ++t)
+        {
+            polymarket::core::Tick bid{}; // event_type 0 (price_change) via zero-init
+            bid.side = 0;                 // BID
+            bid.price = ex[t].bid_px;
+            bid.size = ex[t].bid_sz;
+            std::snprintf(bid.asset_id, sizeof(bid.asset_id), "%s", ex[t].id);
+            ring.produce(bid);
+            ++produced;
+
+            polymarket::core::Tick ask{};
+            ask.side = 1; // ASK
+            ask.price = ex[t].ask_px;
+            ask.size = ex[t].ask_sz;
+            std::snprintf(ask.asset_id, sizeof(ask.asset_id), "%s", ex[t].id);
+            ring.produce(ask);
+            ++produced;
+        }
+
+        // A trade on TOKEN_AAA — journaled, but must NOT touch the book.
+        polymarket::core::Tick trade{};
+        trade.event_type = 1; // last_trade_price
+        trade.side = 0;
+        trade.price = 0.99;
+        trade.size = 999.0;
+        std::snprintf(trade.asset_id, sizeof(trade.asset_id), "%s", ex[0].id);
+        ring.produce(trade);
+        ++produced;
+
+        CHECK(wait_for_ticks(tp, produced),
+              "Timed out waiting for RDB ticks to journal");
+
+        // ticks_written == produced ⇒ every book-level event has been applied
+        // (apply_tick runs before the counter increment) and the ring is drained,
+        // so the consumer thread is idle — these reads race nothing.
+        const auto &book = tp.book();
+        CHECK(book.token_count() == NTOK,
+              "RDB token_count should equal the 3 distinct tokens seen");
+
+        for (int t = 0; t < NTOK; ++t)
+        {
+            uint16_t idx = 0;
+            CHECK(book.find_index(ex[t].id, idx), "RDB should have indexed each token");
+            const auto &ms = book.state(idx);
+            CHECK(std::abs(ms.best_bid_price - ex[t].bid_px) < DOUBLE_EPS, "best_bid_price mismatch");
+            CHECK(std::abs(ms.best_bid_size - ex[t].bid_sz) < DOUBLE_EPS, "best_bid_size mismatch");
+            CHECK(std::abs(ms.best_ask_price - ex[t].ask_px) < DOUBLE_EPS, "best_ask_price mismatch");
+            CHECK(std::abs(ms.best_ask_size - ex[t].ask_sz) < DOUBLE_EPS, "best_ask_size mismatch");
+        }
+
+        // The trade event must not have overwritten TOKEN_AAA's best bid.
+        uint16_t aidx = 0;
+        CHECK(book.find_index(ex[0].id, aidx), "TOKEN_AAA must be indexed");
+        CHECK(std::abs(book.state(aidx).best_bid_price - ex[0].bid_px) < DOUBLE_EPS,
+              "trade event (event_type 1) must not modify the book");
+
+        tp.stop();
+    }
+
+    std::puts("  RDB live top-of-book verified for 3 tokens; trade event ignored  [OK]");
+    std::puts("  => PASS");
+
+    cleanup_dir(journal_dir);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main()
@@ -369,6 +470,9 @@ int main()
     std::putchar('\n');
 
     all_pass &= run_rotation_test();
+    std::putchar('\n');
+
+    all_pass &= run_rdb_test();
     std::putchar('\n');
 
     std::puts(all_pass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");

@@ -2,6 +2,7 @@
 
 #include <polymarket/core/Tick.hpp>
 #include <polymarket/memory/RingBuffer.hpp>
+#include <polymarket/rdb/OrderBook.hpp>
 
 #include <atomic>
 #include <cstdint>
@@ -20,7 +21,14 @@ namespace polymarket::tickerplant
     //
     // Architecture position
     // ─────────────────────
-    //  WS Workers → simdjson → RingBuffer<Tick,65536> → [Tickerplant] → journal/
+    //  WS Workers → simdjson → RingBuffer<Tick,65536> → [Tickerplant] → { NVMe journal
+    //                                                                    + live RDB book }
+    //
+    //  As it drains each tick, the Tickerplant does two things: durably journals
+    //  the raw Tick to disk (the WAL, replayable offline) AND applies book-level
+    //  updates to an in-memory rdb::OrderBook (the classic kdb+ tickerplant→RDB
+    //  split: the journal is the historical record, the RDB is the live view a
+    //  strategy queries with zero disk I/O). See book() and rdb/OrderBook.hpp.
     //
     // Journal rotation
     // ────────────────
@@ -81,6 +89,15 @@ namespace polymarket::tickerplant
             return ticks_written_.load(std::memory_order_acquire);
         }
 
+        // Live top-of-book view maintained alongside the journal. Read-only for
+        // callers; only the consumer thread mutates it (via apply_tick in run()).
+        // Safe to query from another thread for diagnostics — see OrderBook's
+        // thread-safety note on aligned double reads.
+        [[nodiscard]] const rdb::OrderBook &book() const noexcept
+        {
+            return book_;
+        }
+
         // Request an immediate journal rotation.  Intended for tests only —
         // production rotation happens automatically via the clock check. The
         // actual fclose/fopen is performed by the consumer thread inside run(),
@@ -106,7 +123,9 @@ namespace polymarket::tickerplant
         // ── Cold fields (set at construction, never touched in hot loop) ────────
         memory::RingBuffer<core::Tick, 65536> &ring_;
         std::string journal_dir_;
-        int core_id_;
+        // Only read inside the Linux-only affinity block in run(); [[maybe_unused]]
+        // silences the warning on platforms where that block is compiled out (macOS).
+        [[maybe_unused]] int core_id_;
         int rotation_interval_minutes_;
         std::thread thread_;
 
@@ -117,6 +136,12 @@ namespace polymarket::tickerplant
         // ── Hot fields — each on its own cache line ──────────────────────────
         alignas(64) std::atomic<bool> running_{false};
         alignas(64) std::atomic<uint64_t> ticks_written_{0};
+
+        // In-memory RDB: live top-of-book, updated per tick on the consumer
+        // thread. 256 KB flat array (fits in L2); its own cache-line-aligned
+        // slots, so updating one token never evicts another. Owned by value —
+        // the Tickerplant is the single writer, matching OrderBook's contract.
+        rdb::OrderBook book_;
 
         // Test-only forced-rotation request. Set by force_rotate() (any thread),
         // consumed by run() on the consumer thread which does the actual

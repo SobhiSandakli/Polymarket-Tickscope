@@ -166,9 +166,11 @@ namespace polymarket::tickerplant
     // ────────────────────────────────────
     //  1. RingBuffer::consume   — one acquire-load, copy, release-store
     //  2. std::fwrite           — copy 128 bytes into glibc's 8 KB stdio buffer
-    //  3. fetch_add(release)    — atomic increment for the diagnostic counter
-    //  4. Every 1024 ticks: clock_gettime + integer division (~22 ns total)
-    //  5. load(relaxed)         — check running_ flag
+    //  3. book_.apply_tick      — hash lookup + one cache-line write (price_change
+    //                             events only); pure array index once a token is known
+    //  4. fetch_add(release)    — atomic increment for the diagnostic counter
+    //  5. Every 1024 ticks: clock_gettime + integer division (~22 ns total)
+    //  6. load(relaxed)         — check running_ flag
     // ---------------------------------------------------------------------------
 
     void Tickerplant::run() noexcept
@@ -216,6 +218,15 @@ namespace polymarket::tickerplant
                 {
                     std::fwrite(&tick, sizeof(core::Tick), 1, journal_fp_);
                 }
+                // Update the live RDB from book-level events only. price_change
+                // (event_type 0) moves top-of-book; last_trade_price (1) is an
+                // execution — journaled, but applying it would corrupt the best
+                // bid/ask snapshot. Done before the counter increment so a reader
+                // that observes ticks_written() also sees this tick in the book.
+                if (tick.event_type == 0)
+                {
+                    book_.apply_tick(tick);
+                }
                 ticks_written_.fetch_add(1, std::memory_order_release);
             }
 
@@ -260,6 +271,10 @@ namespace polymarket::tickerplant
             if (journal_fp_)
             {
                 std::fwrite(&tick, sizeof(core::Tick), 1, journal_fp_);
+            }
+            if (tick.event_type == 0) // book-level events only — see hot loop above
+            {
+                book_.apply_tick(tick);
             }
             ticks_written_.fetch_add(1, std::memory_order_release);
         }

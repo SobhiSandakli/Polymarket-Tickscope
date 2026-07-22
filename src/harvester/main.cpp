@@ -285,7 +285,7 @@ int main(int argc, char *argv[])
                  polymarket::VERSION_MINOR,
                  polymarket::VERSION_PATCH);
     spdlog::info("Pipeline: WebSocket (core 1) → simdjson → MPSC ring[65536] "
-                 "→ Tickerplant (core 0) → NVMe journal");
+                 "→ Tickerplant (core 0) → NVMe journal + live RDB book");
     spdlog::info("Data directory: {}", data_dir);
 
     // ── Focused market filter (optional) ─────────────────────────────────
@@ -350,8 +350,11 @@ int main(int argc, char *argv[])
     for (const auto &m : subscribe_meta)
         known_ids.insert(m.token_id);
 
-    // ── Tickerplant: drain ring → write WAL journal (core 0) ─────────────
+    // ── Tickerplant: drain ring → WAL journal + live RDB book (core 0) ───
     //
+    // Two outputs from the one drain: every tick is journalled to disk, and
+    // book-level events also update an in-memory rdb::OrderBook (queryable live
+    // via tp.book() — the kdb+ tickerplant→RDB split).
     // Journals rotate every 15 minutes into <data_dir>/polymarket_YYYYMMDD_HHMM.bin.
     // hourly_flush.sh converts closed segments to Parquet and uploads to S3.
     polymarket::tickerplant::Tickerplant tp(
@@ -418,8 +421,9 @@ int main(int argc, char *argv[])
     rediscover_thread.join(); // exits within 30 s (chunked sleep)
     tp.stop();
 
-    spdlog::info("Tickerplant stopped — {} ticks journalled",
-                 tp.ticks_written());
+    spdlog::info("Tickerplant stopped — {} ticks journalled, "
+                 "RDB holds live top-of-book for {} token(s)",
+                 tp.ticks_written(), tp.book().token_count());
     spdlog::info("polymarket HFT shut down cleanly.");
 
     spdlog::shutdown(); // drain async queue
