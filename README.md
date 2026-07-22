@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/SobhiSandakli/Polymarket/actions/workflows/ci.yml/badge.svg)](https://github.com/SobhiSandakli/Polymarket/actions/workflows/ci.yml)
 
-*A microscope for Polymarket: capture its order book at the speed a trading desk sees it, then find out — honestly — whether there's any money in it.*
+*A microscope for Polymarket: capture its order book at the speed a trading desk sees it, then find out whether there's any money in it.*
 
-Prediction markets are supposed to be efficient: every scrap of public information already in the price. I wanted to test that at the millisecond level, so I built the tooling to watch Polymarket the way a low-latency desk would — a C++20 pipeline that stamps every order-book move in microseconds, and a Python backtester that doesn't lie to itself about fills or fees. Then I pointed strategy after strategy at it. Every one lost money once the fees and out-of-sample tests had their say — which is itself the finding.
+Prediction markets are supposed to be efficient: every scrap of public information already in the price. I wanted to test that at the millisecond level, so I built the tooling to watch Polymarket the way a low-latency desk would: a C++20 pipeline that stamps every order-book move in microseconds, and a Python backtester that doesn't lie to itself about fills or fees. Then I pointed strategy after strategy at it. Every one lost money once the fees and out-of-sample tests had their say.
 
-So this repo is two things: the machine, and the receipts. Clone it, point it at any market you like, and you get clean millisecond-stamped order-book data plus a backtest you can throw your own ideas at. Here's one result — the market repricing four World Cup goals *before* ESPN's API even reported them:
+So this repo is two things: the machine, and the receipts. Clone it, point it at any market you like, and you get clean millisecond-stamped order-book data plus a backtest you can throw your own ideas at. Here's one result: the market repricing four World Cup goals *before* ESPN's API even reported them:
 
 ![Polymarket reprice vs ESPN goal detection](research/notebooks/lag_chart_worldcup_2026.png)
 
