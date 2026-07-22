@@ -21,11 +21,14 @@ jobs:
           sudo apt-get install -y build-essential cmake git libssl-dev libz-dev
 
       # FetchContent pulls simdjson / spdlog / cpp-httplib / IXWebSocket from
-      # GitHub on every clean build. Cache the populated _deps dir to keep CI fast.
+      # GitHub on every clean build. Cache only downloaded source trees; cached
+      # subbuild/build directories contain absolute paths and can break CMake on
+      # subsequent runs.
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
-          path: build/_deps
+          path: |
+            build/_deps/*-src
           key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: deps-${{ runner.os }}-
 
