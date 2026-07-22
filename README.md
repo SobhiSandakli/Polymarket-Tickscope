@@ -1,10 +1,12 @@
-# Polymarket Market-Data Platform
+# Polymarket Tickscope
 
 [![CI](https://github.com/SobhiSandakli/Polymarket/actions/workflows/ci.yml/badge.svg)](https://github.com/SobhiSandakli/Polymarket/actions/workflows/ci.yml)
 
-**Capture any Polymarket market at HFT speed, on a clock shared with a reference feed, then test strategies on it.** A low-latency C++20 tick-data pipeline + a fill-and-fee-accurate Python research harness. Clone it, point it at the markets you care about, and you have clean, millisecond-stamped order-book data and a backtest you can throw any strategy at.
+*A microscope for Polymarket: capture its order book at the speed a trading desk sees it, then find out — honestly — whether there's any money in it.*
 
-To prove it works — and to find out *how efficient prediction markets really are* — it's been used to run a body of studies: latency against reference feeds (Coinbase BTC, ESPN sports) and several microstructure strategies. The honest result is at the bottom; here's one study's output:
+Prediction markets are supposed to be efficient: every scrap of public information already in the price. I wanted to test that at the millisecond level, so I built the tooling to watch Polymarket the way a low-latency desk would — a C++20 pipeline that stamps every order-book move in microseconds, and a Python backtester that doesn't lie to itself about fills or fees. Then I pointed strategy after strategy at it. Every one lost money once the fees and out-of-sample tests had their say — which is itself the finding.
+
+So this repo is two things: the machine, and the receipts. Clone it, point it at any market you like, and you get clean millisecond-stamped order-book data plus a backtest you can throw your own ideas at. Here's one result — the market repricing four World Cup goals *before* ESPN's API even reported them:
 
 ![Polymarket reprice vs ESPN goal detection](research/notebooks/lag_chart_worldcup_2026.png)
 
@@ -177,4 +179,4 @@ ctest --test-dir build                              # 4 test suites
 
 ## The honest conclusion
 
-The platform was built to attack Polymarket, and it failed to find a tradeable edge — which is itself the finding. At every timescale and information set accessible to a non-colocated participant, the market was efficient: any signal computable from public data was already in the price, and the dynamic fee structure widens the no-arbitrage band beyond every deviation found. The one frontier left untested is the **sub-second regime**, which needs colocation or a faster reference feed — and the infrastructure to run that test is exactly this repo. In the meantime, it's a clean way to pull Polymarket data and test ideas of your own.
+Tickscope was built to attack Polymarket, and it failed to find a tradeable edge — which is itself the finding. At every timescale and information set accessible to a non-colocated participant, the market was efficient: any signal computable from public data was already in the price, and the dynamic fee structure widens the no-arbitrage band beyond every deviation found. The one frontier left untested is the **sub-second regime**, which needs colocation or a faster reference feed — and the infrastructure to run that test is exactly this repo. In the meantime, it's a clean way to pull Polymarket data and test ideas of your own.
