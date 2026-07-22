@@ -37,6 +37,8 @@ commands.txt
 PLAN.md
 ARCHITECTURE_WALKTHROUGH.md
 AUDIT_FINDINGS.md
+CPP_CAPTURE_WALKTHROUGH.md
+LEARNING_PLAN.md
 
 # Editor / tooling cache
 .cache/

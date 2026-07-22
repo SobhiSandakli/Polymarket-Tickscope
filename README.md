@@ -16,7 +16,7 @@ To prove it works — and to find out *how efficient prediction markets really a
 
 | Layer | What it does |
 |---|---|
-| **Capture (C++20)** | WebSocket → simdjson → lock-free MPSC ring → binary journal. ~2–6μs hot path, no allocation, no locks. Market-generic: point a filter at crypto, sports, politics — anything on Polymarket's CLOB. |
+| **Capture (C++20)** | WebSocket → simdjson → lock-free MPSC ring → Tickerplant → binary journal **+ a live in-RAM order book (RDB)**. ~2–6μs hot path, no allocation, no locks. Market-generic: point a filter at crypto, sports, politics — anything on Polymarket's CLOB. |
 | **Reference feeds** | Coinbase BTC-USD harvester + sport-generic ESPN score collector, run on the **same host and clock** so any feed joins the Polymarket ticks on `ts_ms`. |
 | **Research harness (Python)** | DuckDB + Parquet. A fill-simulated backtest engine with Polymarket's full dynamic fee model, a parameter-sweep optimizer, and a locked-parameter out-of-sample validator. Drop in a strategy, get an honest P&L. |
 | **Execution (C++20)** | Full bot path: FeedHandler → BookState → StrategyEngine → OrderGateway, Kelly sizing, paper + live modes. |
@@ -104,25 +104,33 @@ Reproducibility map for each analysis (which run from a clone vs. need your own 
 
 ## Architecture
 
-```
-                      Data Collection (C++)
-┌────────────────────────────────────────────────────┐
-│  Polymarket WS ───► simdjson ───► Tick (128B)      │
-│  (core 1)          zero-copy    ───► MPSC Ring     │
-│                                     [65536 slots]  │
-│                                     ───► Tickerplant (core 0)
-│                                          ───► .bin journal
-│                                                    │
-│  Coinbase WS ──────► simdjson ───► BtcTick (64B)   │
-│                                 ───► BtcJournal ───► .bin
-│                                                    │
-│  ESPN scoreboard ─► Python collector ───► .csv     │
-│  (1s poll)          (same epoch-ms clock)          │
-└──────────────────────────┬─────────────────────────┘
-                           │ log_to_parquet.py
-                           ▼
-                   Research (Python + DuckDB)
-   backtest · parameter sweep · lag analysis · OOS validation
+```mermaid
+flowchart TD
+    subgraph CAP["Capture — C++20, cores pinned"]
+        WS["Polymarket WS<br/>core 1"] --> PJ["simdjson<br/>zero-copy parse"]
+        PJ --> TK["Tick · 128 B"]
+        TK --> RB["MPSC ring buffer<br/>65,536 slots · lock-free"]
+        RB --> TP["Tickerplant<br/>core 0 · single consumer"]
+        TP --> JN[("journal .bin<br/>15-min rotation")]
+        TP --> RD["live RDB book<br/>in-RAM top-of-book"]
+        CB["Coinbase WS"] --> CJ["simdjson"] --> BJ[("BtcTick .bin")]
+        ES["ESPN scoreboard<br/>1 s poll"] --> CS[("scores .csv")]
+    end
+    JN --> LP["log_to_parquet.py"]
+    BJ --> LP
+    LP --> PQ[("Parquet")]
+    subgraph RES["Research — Python + DuckDB, offline"]
+        DK["DuckDB<br/>ts_ms joins"] --> BE["backtest engine<br/>fills + real fee model"]
+        DK --> LG["lag analysis"]
+        BE --> OO["locked-param OOS validation"]
+    end
+    PQ --> DK
+    CS --> DK
+    RD -. queried live .-> ST["strategy / diagnostics"]
+    classDef store fill:#dfe7f0,stroke:#4c647e,stroke-width:1px,color:#16202b;
+    classDef live fill:#d9f0ed,stroke:#0f8f86,stroke-width:1px,color:#0b2b28;
+    class JN,BJ,CS,PQ store;
+    class RD live;
 ```
 
 All feeds share one system clock per host, so cross-feed lag is a direct `ts_ms` join in DuckDB.
@@ -136,6 +144,7 @@ All feeds share one system clock per host, so cross-feed lag is a direct `ts_ms`
 | **Tick record** | 128 bytes (exactly 2 cache lines) | A struct straddling a 64-byte line causes a split-load — two cache misses per read instead of one. |
 | **Thread placement** | I/O → core 1, Tickerplant → core 0 | Scheduler migrations invalidate L1/L2 (100–400 cycles + TLB churn); pinning keeps latency consistent. |
 | **Storage** | Binary journal, 15-min rotation | Sequential write, no serialization, no locks. Rotation caps crash data-loss at 15 minutes. |
+| **Real-time state** | Tickerplant → RDB split | The single drain does two things per tick: journals it to disk (replayable history) and updates a cache-line-per-token in-memory book. The kdb+ pattern — disk for the past, RAM for the live top-of-book a strategy queries in nanoseconds. |
 | **Market filter** | `POLYMARKET_MARKET_FILTER` env var | The full firehose is an ~800 KB subscribe message the server drops (close 1006); a focused filter is ~1 KB and prevents OOM on burstable EC2. |
 
 Deep-dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Decision records: [`docs/adr/`](docs/adr/)
